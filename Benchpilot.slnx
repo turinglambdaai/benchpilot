@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Benchpilot.Core/Benchpilot.Core.csproj" />
+    <Project Path="src/Benchpilot.Mcp/Benchpilot.Mcp.csproj" />
+    <Project Path="src/Benchpilot.Simulator/Benchpilot.Simulator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Benchpilot.Core.Tests/Benchpilot.Core.Tests.csproj" />
+  </Folder>
+</Solution>

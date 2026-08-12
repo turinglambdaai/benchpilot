@@ -1,0 +1,11 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <Authors>turinglambdaai</Authors>
+    <Copyright>Copyright © 2026 turinglambdaai</Copyright>
+    <RepositoryUrl>https://github.com/turinglambdaai/benchpilot</RepositoryUrl>
+  </PropertyGroup>
+
+</Project>

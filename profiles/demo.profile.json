@@ -1,0 +1,18 @@
+{
+  "driver": "simulator",
+  "board": {
+    "name": "Demo Board",
+    "mcu": "simulated-mcu"
+  },
+  "power": {
+    "voltage": 12,
+    "settleMs": 2000
+  },
+  "serial": {
+    "port": "SIM0",
+    "baud": 115200
+  },
+  "flash": {
+    "firmware": "build/app.elf"
+  }
+}
