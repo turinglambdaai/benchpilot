@@ -90,14 +90,16 @@ internal static class BenchpilotCli
                 case ("flash", "write"):
                 {
                     var firmware = RequirePositional(parsed, 2, "firmware path");
-                    var result = await client.Flash(firmware, target, cts.Token);
+                    var confirmTarget = parsed.Get("confirm-target");
+                    var result = await client.Flash(firmware, target, confirmTarget, cts.Token);
                     Print(result, parsed.Json);
                     return result.Ok ? 0 : 4;
                 }
 
                 case ("flash", "reset"):
                 {
-                    var result = await client.Reset(target, cts.Token);
+                    var confirmTarget = parsed.Get("confirm-target");
+                    var result = await client.Reset(target, confirmTarget, cts.Token);
                     Print(result, parsed.Json);
                     return result.Ok ? 0 : 4;
                 }
@@ -148,11 +150,16 @@ internal static class BenchpilotCli
         catch (BenchClientException ex)
         {
             Print(new ApiError(false, ex.Code, ex.Message), parsed.Json);
-            return ex.StatusCode switch
+            return ex.Code switch
             {
-                HttpStatusCode.BadRequest => 2,
-                HttpStatusCode.NotFound => 3,
-                _ => 1,
+                "busy" => 5,
+                "runtime_state" => 4,
+                _ => ex.StatusCode switch
+                {
+                    HttpStatusCode.BadRequest => 2,
+                    HttpStatusCode.NotFound => 3,
+                    _ => 1,
+                },
             };
         }
         catch (HttpRequestException ex)
@@ -206,8 +213,8 @@ Usage:
   benchpilot power current [--target ID] [--window-ms N] [--json]
   benchpilot power check   [--target ID] [--lt-ma N] [--gt-ma N] [--json]
 
-  benchpilot flash write <firmware> [--target ID] [--json]
-  benchpilot flash reset            [--target ID] [--json]
+  benchpilot flash write <firmware> [--target ID] [--confirm-target ID] [--json]
+  benchpilot flash reset            [--target ID] [--confirm-target ID] [--json]
 
   benchpilot serial open            [--target ID] [--port NAME] [--baud N] [--json]
   benchpilot serial wait <pattern>  [--target ID] [--timeout-ms N] [--json]
@@ -216,6 +223,9 @@ Usage:
 
 `serial open` normally uses port/baud from the target resource profile. --port and
 --baud are optional expert/debug overrides.
+
+When safety.requireDestructiveConfirmation is enabled, flash/reset require
+--confirm-target to exactly match the resolved semantic target id.
 
 Environment:
   BENCHPILOT_ENDPOINT   Runtime endpoint (default http://127.0.0.1:5640/)
@@ -226,6 +236,7 @@ Exit codes:
   2 validation error
   3 target/resource not found
   4 runtime/device unavailable or device error
+  5 target busy (another mutating operation is active)
 """);
     }
 }
