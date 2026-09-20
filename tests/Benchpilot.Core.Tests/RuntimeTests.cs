@@ -113,14 +113,31 @@ public class RuntimeTests
     }
 
     [Fact]
-    public async Task Power_off_remains_available_during_an_active_mutation()
+    public async Task Normal_power_off_does_not_interrupt_an_active_mutation()
     {
         var (runtime, bench) = NewRuntime();
         var target = runtime.Target();
         Assert.True((await target.PowerOn(12, 0)).Ok);
 
         var flash = target.Flash("build/app.elf");
-        var off = await target.PowerOff();
+        var busy = await Assert.ThrowsAsync<BenchBusyException>(() => target.PowerOff());
+
+        Assert.Equal("demo", busy.TargetId);
+        Assert.Equal("power.off", busy.Operation);
+        Assert.True(bench.IsOn);
+        Assert.True((await flash).Ok);
+        Assert.True(bench.IsOn);
+    }
+
+    [Fact]
+    public async Task Emergency_power_off_remains_available_during_an_active_mutation()
+    {
+        var (runtime, bench) = NewRuntime();
+        var target = runtime.Target();
+        Assert.True((await target.PowerOn(12, 0)).Ok);
+
+        var flash = target.Flash("build/app.elf");
+        var off = await target.EmergencyPowerOff();
 
         Assert.True(off.Ok);
         Assert.False(bench.IsOn);
