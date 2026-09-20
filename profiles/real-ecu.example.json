@@ -55,6 +55,7 @@
   "safety": {
     "maxVoltage": 14.5,
     "maxCurrentMa": 2500,
-    "requireExplicitTarget": true
+    "requireExplicitTarget": true,
+    "requireDestructiveConfirmation": true
   }
 }
