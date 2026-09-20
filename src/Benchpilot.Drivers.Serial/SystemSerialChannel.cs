@@ -27,6 +27,8 @@ public sealed class SystemSerialResourceFactory : IBenchResourceFactory
 
         if (baud <= 0)
             throw new InvalidOperationException($"Resource '{resourceId}' has invalid serial baud {baud}.");
+        if (string.IsNullOrEmpty(newLine))
+            throw new InvalidOperationException($"Resource '{resourceId}' newLine cannot be empty.");
         if (maxBufferedLines is < 64 or > 100_000)
             throw new InvalidOperationException(
                 $"Resource '{resourceId}' maxBufferedLines must be between 64 and 100000.");
@@ -128,7 +130,7 @@ public sealed class SystemSerialChannel : ISerialChannel, IDisposable
                 ClosePortLocked();
                 ClearBuffer();
 
-                var serial = new SerialPort(resolvedPort, resolvedBaud)
+                _port = new SerialPort(resolvedPort, resolvedBaud)
                 {
                     NewLine = _newLine,
                     ReadTimeout = 500,
@@ -137,9 +139,8 @@ public sealed class SystemSerialChannel : ISerialChannel, IDisposable
                     RtsEnable = false,
                 };
 
-                serial.DataReceived += OnDataReceived;
-                serial.Open();
-                _port = serial;
+                _port.DataReceived += OnDataReceived;
+                _port.Open();
                 return Task.FromResult(new SerialOpenResult(true, resolvedPort, resolvedBaud));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
@@ -169,14 +170,7 @@ public sealed class SystemSerialChannel : ISerialChannel, IDisposable
             }
 
             if (sw.ElapsedMilliseconds >= timeoutMs) break;
-            try
-            {
-                await Task.Delay(25, ct);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
+            await Task.Delay(25, ct);
         }
 
         return new SerialWaitResult(true, false, null, (int)sw.ElapsedMilliseconds);
