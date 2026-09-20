@@ -38,17 +38,43 @@ public static class ProfileLoader
 
     /// <summary>
     /// Convert a P0 single-driver profile to the resource/target schema. New
-    /// profiles pass through unchanged except for a missing DefaultTarget.
+    /// profiles are copied into case-insensitive dictionaries so ids and
+    /// capability names behave consistently across JSON and programmatic use.
     /// </summary>
     public static BenchProfile Normalize(BenchProfile profile)
     {
         if (profile.Resources.Count > 0 || profile.Targets.Count > 0)
         {
-            var defaultTarget = profile.DefaultTarget;
-            if (string.IsNullOrWhiteSpace(defaultTarget) && profile.Targets.Count == 1)
-                defaultTarget = profile.Targets.Keys.First();
+            var resources = profile.Resources.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value with
+                {
+                    Settings = new Dictionary<string, JsonElement>(
+                        pair.Value.Settings,
+                        StringComparer.OrdinalIgnoreCase),
+                },
+                StringComparer.OrdinalIgnoreCase);
 
-            return profile with { DefaultTarget = defaultTarget };
+            var targets = profile.Targets.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value with
+                {
+                    Bindings = new Dictionary<string, string>(
+                        pair.Value.Bindings,
+                        StringComparer.OrdinalIgnoreCase),
+                },
+                StringComparer.OrdinalIgnoreCase);
+
+            var defaultTarget = profile.DefaultTarget;
+            if (string.IsNullOrWhiteSpace(defaultTarget) && targets.Count == 1)
+                defaultTarget = targets.Keys.First();
+
+            return profile with
+            {
+                DefaultTarget = defaultTarget,
+                Resources = resources,
+                Targets = targets,
+            };
         }
 
         if (string.IsNullOrWhiteSpace(profile.Driver))
