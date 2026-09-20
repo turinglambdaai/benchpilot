@@ -112,4 +112,38 @@ public class ProfileTests
         var ex = Assert.Throws<InvalidOperationException>(() => ProfileLoader.LoadJson(json));
         Assert.Contains("does not advertise", ex.Message);
     }
+
+    [Theory]
+    [InlineData("maxVoltage", 0)]
+    [InlineData("maxVoltage", -1)]
+    [InlineData("maxCurrentMa", 0)]
+    [InlineData("maxCurrentMa", -10)]
+    public void Non_positive_safety_limits_are_rejected_at_load_time(string key, double value)
+    {
+        var json = $$"""
+        {
+          "schemaVersion": 1,
+          "resources": {
+            "sim": {
+              "driver": "simulator",
+              "capabilities": ["power"]
+            }
+          },
+          "targets": {
+            "ecu": {
+              "bindings": {
+                "power": "sim"
+              }
+            }
+          },
+          "safety": {
+            "{{key}}": {{value}}
+          }
+        }
+        """;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => ProfileLoader.LoadJson(json));
+        Assert.Contains(key, ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("greater than zero", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }
