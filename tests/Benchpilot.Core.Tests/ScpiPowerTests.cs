@@ -18,21 +18,7 @@ public class ScpiPowerTests
             ["MEAS:CURR?"] = "0.123",
         });
 
-        using var supply = new ScpiPowerSupply(new ScpiPowerSettings(
-            "127.0.0.1",
-            server.Port,
-            2000,
-            2000,
-            1.5,
-            null,
-            new ScpiPowerCommands(
-                "VOLT {voltage}",
-                "CURR {current}",
-                "OUTP ON",
-                "OUTP OFF",
-                "MEAS:VOLT?",
-                "MEAS:CURR?",
-                "*IDN?")));
+        using var supply = NewSupply(server.Port, ioTimeoutMs: 2000);
 
         var on = await supply.PowerOn(12, 0);
         Assert.True(on.Ok, on.Error);
@@ -52,6 +38,25 @@ public class ScpiPowerTests
         Assert.Contains("MEAS:VOLT?", commands);
         Assert.Contains("MEAS:CURR?", commands);
         Assert.Contains("OUTP OFF", commands);
+    }
+
+    [Fact]
+    public async Task Device_response_timeout_is_reported_as_device_error_and_triggers_safety_off()
+    {
+        await using var server = new FakeScpiServer(new Dictionary<string, string?>
+        {
+            ["MEAS:VOLT?"] = null,
+        });
+
+        using var supply = NewSupply(server.Port, ioTimeoutMs: 150);
+
+        var result = await supply.PowerOn(12, 0);
+
+        Assert.False(result.Ok);
+        Assert.Contains("timed out", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("cancel", result.Error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.False(supply.IsOn);
+        await server.WaitForCommand("OUTP OFF", TimeSpan.FromSeconds(2));
     }
 
     [Fact]
@@ -119,6 +124,23 @@ public class ScpiPowerTests
             new ScpiPowerResourceFactory().Create("psu", profile.Resources["psu"]));
         Assert.Contains("single-line", ex.Message);
     }
+
+    private static ScpiPowerSupply NewSupply(int port, int ioTimeoutMs) =>
+        new(new ScpiPowerSettings(
+            "127.0.0.1",
+            port,
+            2000,
+            ioTimeoutMs,
+            1.5,
+            null,
+            new ScpiPowerCommands(
+                "VOLT {voltage}",
+                "CURR {current}",
+                "OUTP ON",
+                "OUTP OFF",
+                "MEAS:VOLT?",
+                "MEAS:CURR?",
+                "*IDN?")));
 
     private sealed class FakeScpiServer : IAsyncDisposable
     {
