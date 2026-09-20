@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Benchpilot.Core\Benchpilot.Core.csproj" />
     <ProjectReference Include="..\..\src\Benchpilot.Drivers.JLink\Benchpilot.Drivers.JLink.csproj" />
+    <ProjectReference Include="..\..\src\Benchpilot.Drivers.ScpiPower\Benchpilot.Drivers.ScpiPower.csproj" />
     <ProjectReference Include="..\..\src\Benchpilot.Drivers.Serial\Benchpilot.Drivers.Serial.csproj" />
     <ProjectReference Include="..\..\src\Benchpilot.Runtime\Benchpilot.Runtime.csproj" />
     <ProjectReference Include="..\..\src\Benchpilot.Simulator\Benchpilot.Simulator.csproj" />

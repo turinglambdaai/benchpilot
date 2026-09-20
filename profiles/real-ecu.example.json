@@ -3,6 +3,23 @@
   "name": "Real ECU example",
   "defaultTarget": "ecu",
   "resources": {
+    "psu.main": {
+      "driver": "scpi-power",
+      "capabilities": ["power"],
+      "settings": {
+        "host": "192.168.1.50",
+        "port": 5025,
+        "connectTimeoutMs": 3000,
+        "ioTimeoutMs": 3000,
+        "currentLimitA": 2.0,
+        "setVoltage": "VOLT {voltage}",
+        "setCurrentLimit": "CURR {current}",
+        "outputOn": "OUTP ON",
+        "outputOff": "OUTP OFF",
+        "measureVoltage": "MEAS:VOLT?",
+        "measureCurrent": "MEAS:CURR?"
+      }
+    },
     "uart.ecu": {
       "driver": "system-serial",
       "capabilities": ["serial"],
@@ -29,12 +46,15 @@
       "name": "Example ECU",
       "mcu": "CHANGE_ME",
       "bindings": {
+        "power": "psu.main",
         "serial": "uart.ecu",
         "flash": "probe.ecu"
       }
     }
   },
   "safety": {
+    "maxVoltage": 14.5,
+    "maxCurrentMa": 2500,
     "requireExplicitTarget": true
   }
 }

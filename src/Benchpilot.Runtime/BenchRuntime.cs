@@ -182,7 +182,7 @@ public sealed class BenchTarget
         }
     }
 
-    public Task<PowerOnResult> PowerOn(
+    public async Task<PowerOnResult> PowerOn(
         double voltage,
         int settleMs,
         CancellationToken ct = default)
@@ -196,7 +196,25 @@ public sealed class BenchTarget
             throw new BenchValidationException(
                 $"Requested voltage {voltage:0.###} V exceeds bench safety limit {maxVoltage:0.###} V.");
 
-        return Capability<IPowerSupply>("power").PowerOn(voltage, settleMs, ct);
+        var supply = Capability<IPowerSupply>("power");
+        var result = await supply.PowerOn(voltage, settleMs, ct);
+
+        if (result.Ok &&
+            _runtime.Profile.Safety.MaxCurrentMa is { } maxCurrentMa &&
+            result.CurrentMa > maxCurrentMa)
+        {
+            var off = await supply.PowerOff(ct);
+            var suffix = off.Ok ? "Power output was switched off." : "Power-off also reported an error.";
+            return result with
+            {
+                Ok = false,
+                Settled = false,
+                Error = $"Measured current {result.CurrentMa:0.###} mA exceeds bench safety limit " +
+                    $"{maxCurrentMa:0.###} mA. {suffix}",
+            };
+        }
+
+        return result;
     }
 
     public Task<PowerOffResult> PowerOff(CancellationToken ct = default) =>

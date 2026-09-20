@@ -5,6 +5,7 @@
     <Project Path="src/Benchpilot.Runtime/Benchpilot.Runtime.csproj" />
     <Project Path="src/Benchpilot.Drivers.Serial/Benchpilot.Drivers.Serial.csproj" />
     <Project Path="src/Benchpilot.Drivers.JLink/Benchpilot.Drivers.JLink.csproj" />
+    <Project Path="src/Benchpilot.Drivers.ScpiPower/Benchpilot.Drivers.ScpiPower.csproj" />
     <Project Path="src/Benchpilot.RuntimeHost/Benchpilot.RuntimeHost.csproj" />
     <Project Path="src/Benchpilot.Client/Benchpilot.Client.csproj" />
     <Project Path="src/Benchpilot.Cli/Benchpilot.Cli.csproj" />
