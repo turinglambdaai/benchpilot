@@ -37,6 +37,7 @@
         "device": "CHANGE_ME_TO_SEGGER_DEVICE_NAME",
         "interface": "SWD",
         "speedKhz": 4000,
+        "serialNumber": "CHANGE_ME_TO_JLINK_SERIAL_NUMBER",
         "timeoutMs": 120000
       }
     }
