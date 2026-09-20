@@ -20,15 +20,44 @@ public sealed class BenchTargetNotFoundException : BenchRuntimeException
 
 public sealed class BenchBusyException : BenchRuntimeException
 {
-    public BenchBusyException(string targetId, string operation)
-        : base($"Target '{targetId}' is busy with another mutating operation; '{operation}' was not started.")
+    public BenchBusyException(
+        string targetId,
+        string operation,
+        string busyScope = "target",
+        string? busyId = null)
+        : base(CreateMessage(targetId, operation, busyScope, busyId))
     {
         TargetId = targetId;
         Operation = operation;
+        BusyScope = busyScope;
+        BusyId = busyId ?? targetId;
     }
 
     public string TargetId { get; }
     public string Operation { get; }
+    public string BusyScope { get; }
+    public string BusyId { get; }
+    public string? ResourceId =>
+        string.Equals(BusyScope, "resource", StringComparison.OrdinalIgnoreCase)
+            ? BusyId
+            : null;
+
+    private static string CreateMessage(
+        string targetId,
+        string operation,
+        string busyScope,
+        string? busyId)
+    {
+        if (string.Equals(busyScope, "resource", StringComparison.OrdinalIgnoreCase))
+        {
+            var resourceId = busyId ?? "unknown";
+            return $"Resource '{resourceId}' is busy with another mutating operation; " +
+                $"target '{targetId}' operation '{operation}' was not started.";
+        }
+
+        return $"Target '{targetId}' is busy with another mutating operation; " +
+            $"'{operation}' was not started.";
+    }
 }
 
 /// <summary>
@@ -161,24 +190,64 @@ public sealed class BenchRuntime : IDisposable
         }
     }
 
-    internal async Task<T> RunTargetMutation<T>(
+    internal async Task<T> RunMutation<T>(
         string targetId,
         string operation,
+        IReadOnlyCollection<string> resourceIds,
         Func<Task<T>> action,
         CancellationToken ct)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var gate = _mutationGates.GetOrAdd(targetId, static _ => new SemaphoreSlim(1, 1));
-        if (!await gate.WaitAsync(0, ct))
-            throw new BenchBusyException(targetId, operation);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+        ArgumentNullException.ThrowIfNull(resourceIds);
+        ArgumentNullException.ThrowIfNull(action);
+        ct.ThrowIfCancellationRequested();
 
+        var requests = new List<MutationGateRequest>
+        {
+            new($"target:{targetId}", "target", targetId),
+        };
+
+        requests.AddRange(resourceIds
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(resourceId => new MutationGateRequest(
+                $"resource:{resourceId}",
+                "resource",
+                resourceId)));
+
+        requests.Sort(static (left, right) =>
+            StringComparer.OrdinalIgnoreCase.Compare(left.Key, right.Key));
+
+        var acquired = new List<SemaphoreSlim>(requests.Count);
         try
         {
+            foreach (var request in requests)
+            {
+                ct.ThrowIfCancellationRequested();
+                var gate = _mutationGates.GetOrAdd(
+                    request.Key,
+                    static _ => new SemaphoreSlim(1, 1));
+
+                if (!await gate.WaitAsync(0, ct))
+                {
+                    throw new BenchBusyException(
+                        targetId,
+                        operation,
+                        request.Scope,
+                        request.Id);
+                }
+
+                acquired.Add(gate);
+            }
+
             return await action();
         }
         finally
         {
-            gate.Release();
+            for (var i = acquired.Count - 1; i >= 0; i--)
+                acquired[i].Release();
         }
     }
 
@@ -191,6 +260,8 @@ public sealed class BenchRuntime : IDisposable
             gate.Dispose();
         _mutationGates.Clear();
     }
+
+    private sealed record MutationGateRequest(string Key, string Scope, string Id);
 }
 
 /// <summary>
@@ -218,18 +289,8 @@ public sealed class BenchTarget
     public bool HasCapability(string capability) =>
         _config.Bindings.ContainsKey(capability);
 
-    public T Capability<T>(string capability) where T : class
-    {
-        try
-        {
-            var binding = ProfileLoader.ResolveResource(_runtime.Profile, capability, Id);
-            return _runtime.Resources.Get<T>(binding.ResourceId);
-        }
-        catch (KeyNotFoundException ex)
-        {
-            throw new BenchTargetNotFoundException(ex.Message);
-        }
-    }
+    public T Capability<T>(string capability) where T : class =>
+        BoundCapability<T>(capability).Capability;
 
     public async Task<PowerOnResult> PowerOn(
         double voltage,
@@ -245,16 +306,16 @@ public sealed class BenchTarget
             throw new BenchValidationException(
                 $"Requested voltage {voltage:0.###} V exceeds bench safety limit {maxVoltage:0.###} V.");
 
-        return await _runtime.RunTargetMutation(Id, "power.on", async () =>
+        var binding = BoundCapability<IPowerSupply>("power");
+        return await _runtime.RunMutation(Id, "power.on", [binding.ResourceId], async () =>
         {
-            var supply = Capability<IPowerSupply>("power");
-            var result = await supply.PowerOn(voltage, settleMs, ct);
+            var result = await binding.Capability.PowerOn(voltage, settleMs, ct);
 
             if (result.Ok &&
                 _runtime.Profile.Safety.MaxCurrentMa is { } maxCurrentMa &&
                 result.CurrentMa > maxCurrentMa)
             {
-                var off = await supply.PowerOff(ct);
+                var off = await binding.Capability.PowerOff(ct);
                 var suffix = off.Ok ? "Power output was switched off." : "Power-off also reported an error.";
                 return result with
                 {
@@ -270,20 +331,25 @@ public sealed class BenchTarget
     }
 
     /// <summary>
-    /// Normal operator shutdown. This participates in the target mutation gate,
-    /// so an ordinary CLI/MCP power-off cannot interrupt an active flash/reset.
+    /// Normal operator shutdown. This participates in target and resource
+    /// mutation gates so it cannot interrupt an active flash/reset or another
+    /// target currently using the same physical power supply.
     /// </summary>
-    public Task<PowerOffResult> PowerOff(CancellationToken ct = default) =>
-        _runtime.RunTargetMutation(
+    public Task<PowerOffResult> PowerOff(CancellationToken ct = default)
+    {
+        var binding = BoundCapability<IPowerSupply>("power");
+        return _runtime.RunMutation(
             Id,
             "power.off",
-            () => Capability<IPowerSupply>("power").PowerOff(ct),
+            [binding.ResourceId],
+            () => binding.Capability.PowerOff(ct),
             ct);
+    }
 
     /// <summary>
     /// Explicit safety escape hatch. This is the only shell-facing power action
-    /// allowed to bypass the mutation gate so an operator can de-energize a
-    /// bench during an unsafe condition even while another mutation is active.
+    /// allowed to bypass mutation gates so an operator can de-energize a bench
+    /// during an unsafe condition even while another mutation is active.
     /// </summary>
     public Task<PowerOffResult> EmergencyPowerOff(CancellationToken ct = default) =>
         Capability<IPowerSupply>("power").PowerOff(ct);
@@ -315,10 +381,13 @@ public sealed class BenchTarget
         if (string.IsNullOrWhiteSpace(firmware))
             throw new BenchValidationException("Firmware path cannot be empty.");
         ValidateDestructiveConfirmation("flash", confirmTarget);
-        return _runtime.RunTargetMutation(
+
+        var binding = BoundCapability<IFlashTarget>("flash");
+        return _runtime.RunMutation(
             Id,
             "flash.write",
-            () => Capability<IFlashTarget>("flash").Flash(firmware, ct),
+            [binding.ResourceId],
+            () => binding.Capability.Flash(firmware, ct),
             ct);
     }
 
@@ -327,10 +396,13 @@ public sealed class BenchTarget
         CancellationToken ct = default)
     {
         ValidateDestructiveConfirmation("reset", confirmTarget);
-        return _runtime.RunTargetMutation(
+
+        var binding = BoundCapability<IFlashTarget>("flash");
+        return _runtime.RunMutation(
             Id,
             "flash.reset",
-            () => Capability<IFlashTarget>("flash").Reset(ct),
+            [binding.ResourceId],
+            () => binding.Capability.Reset(ct),
             ct);
     }
 
@@ -373,6 +445,19 @@ public sealed class BenchTarget
         if (data is null)
             throw new BenchValidationException("Serial data cannot be null.");
         return Capability<ISerialChannel>("serial").Send(data, ct);
+    }
+
+    private (string ResourceId, T Capability) BoundCapability<T>(string capability) where T : class
+    {
+        try
+        {
+            var binding = ProfileLoader.ResolveResource(_runtime.Profile, capability, Id);
+            return (binding.ResourceId, _runtime.Resources.Get<T>(binding.ResourceId));
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw new BenchTargetNotFoundException(ex.Message);
+        }
     }
 
     private void ValidateDestructiveConfirmation(string operation, string? confirmTarget)
