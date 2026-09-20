@@ -12,7 +12,7 @@ Build -> Flash -> Run -> Observe -> Diagnose -> Fix
 
 BenchPilot is **not** a CANoe clone. It does not aim to reproduce full vehicle-network simulation, CAPL, ADAS simulation or hundreds of analysis windows. CAN/CAN FD, DBC, ISO-TP, UDS and DoIP are added when they help complete the ECU development loop.
 
-> Current status: **runtime foundation / simulator milestone**. A resident Runtime, versioned local API, CLI and MCP adapter now share one simulated power + serial + flash bench state. Real hardware drivers are the next vertical slice.
+> Current status: **runtime foundation validated**. A resident Runtime, versioned local API, CLI and MCP adapter share one simulated power + serial + flash bench state. Windows/Linux build and tests pass, and CI executes the full resident-runtime CLI smoke loop. The next milestone is real serial + J-Link + SCPI hardware.
 
 ## Why BenchPilot?
 
@@ -170,7 +170,7 @@ With `benchpilotd` still running:
 dotnet run --project src/Benchpilot.Mcp
 ```
 
-The MCP process is now only a stdio protocol adapter. It calls the same resident Runtime as CLI, so an Agent and a terminal observe the same ECU/bench state.
+The MCP process is only a stdio protocol adapter. It calls the same resident Runtime as CLI, so an Agent and a terminal observe the same ECU/bench state.
 
 Example Agent task:
 
@@ -239,6 +239,8 @@ benchpilot/
 │   └── Benchpilot.Core.Tests/
 ├── profiles/
 │   └── demo.profile.json
+├── scripts/
+│   └── smoke-runtime.sh
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── adr/
@@ -251,7 +253,7 @@ Future driver/protocol/Flash/Studio projects plug into these boundaries rather t
 
 Near-term work is deliberately a vertical slice rather than broad protocol coverage:
 
-1. finish Runtime lifecycle/locking/timeouts and structured operation errors;
+1. resource-driver factory/lifecycle boundary;
 2. real serial + J-Link + SCPI power;
 3. CAN/CAN FD + DBC observations via SocketCAN and PCAN;
 4. ISO-TP + UDS;
