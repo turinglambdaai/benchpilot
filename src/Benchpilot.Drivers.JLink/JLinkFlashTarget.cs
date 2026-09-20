@@ -107,12 +107,45 @@ public sealed record JLinkSettings(
 /// SEGGER binaries. Process arguments use ArgumentList and generated command
 /// files are treated as trusted Runtime artifacts, not shell commands.
 /// </summary>
-public sealed class JLinkFlashTarget : IFlashTarget
+public sealed class JLinkFlashTarget : IFlashTarget, IResourceHealthCheck
 {
     private readonly JLinkSettings _settings;
 
     public JLinkFlashTarget(JLinkSettings settings) =>
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+
+    public Task<ResourceHealthResult> CheckHealth(CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var executable = ResolveCommanderExecutable(_settings.Executable);
+        IReadOnlyDictionary<string, string> details = new Dictionary<string, string>
+        {
+            ["configuredExecutable"] = _settings.Executable,
+            ["device"] = _settings.Device,
+            ["interface"] = _settings.Interface,
+            ["speedKhz"] = _settings.SpeedKhz.ToString(CultureInfo.InvariantCulture),
+            ["serialNumber"] = _settings.SerialNumber ?? string.Empty,
+            ["probeConnectivityChecked"] = "false",
+        };
+
+        if (executable is null)
+        {
+            return Task.FromResult(new ResourceHealthResult(
+                false,
+                "SEGGER J-Link Commander was not found.",
+                details,
+                $"Could not resolve '{_settings.Executable}'. Install the SEGGER J-Link Software and Documentation Pack or configure settings.executable."));
+        }
+
+        var enriched = new Dictionary<string, string>(details)
+        {
+            ["resolvedExecutable"] = executable,
+        };
+        return Task.FromResult(new ResourceHealthResult(
+            true,
+            "SEGGER J-Link Commander is available. Preflight does not connect to or reset the probe/target.",
+            enriched));
+    }
 
     public async Task<FlashResult> Flash(string firmwarePath, CancellationToken ct = default)
     {
@@ -187,6 +220,14 @@ public sealed class JLinkFlashTarget : IFlashTarget
         IReadOnlyList<string> commands,
         CancellationToken ct)
     {
+        var executable = ResolveCommanderExecutable(_settings.Executable);
+        if (executable is null)
+        {
+            return new CommanderRunResult(
+                false,
+                $"Could not resolve '{_settings.Executable}'. Install the SEGGER J-Link Software and Documentation Pack or configure settings.executable.");
+        }
+
         var commandFile = Path.Combine(
             Path.GetTempPath(),
             $"benchpilot-jlink-{Guid.NewGuid():N}.jlink");
@@ -197,7 +238,7 @@ public sealed class JLinkFlashTarget : IFlashTarget
 
             var start = new ProcessStartInfo
             {
-                FileName = _settings.Executable,
+                FileName = executable,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -224,7 +265,7 @@ public sealed class JLinkFlashTarget : IFlashTarget
             {
                 return new CommanderRunResult(
                     false,
-                    $"Could not start '{_settings.Executable}'. Install the SEGGER J-Link Software and Documentation Pack or configure settings.executable. {ex.Message}");
+                    $"Could not start '{executable}'. {ex.Message}");
             }
 
             var stdoutTask = process.StandardOutput.ReadToEndAsync();
@@ -268,6 +309,91 @@ public sealed class JLinkFlashTarget : IFlashTarget
         finally
         {
             try { File.Delete(commandFile); } catch (IOException) { }
+        }
+    }
+
+    private static string? ResolveCommanderExecutable(string configured)
+    {
+        if (string.IsNullOrWhiteSpace(configured)) return null;
+
+        if (Path.IsPathRooted(configured)
+            || configured.Contains(Path.DirectorySeparatorChar)
+            || configured.Contains(Path.AltDirectorySeparatorChar))
+        {
+            try
+            {
+                var full = Path.GetFullPath(configured);
+                return File.Exists(full) ? full : null;
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                return null;
+            }
+        }
+
+        var path = Environment.GetEnvironmentVariable("PATH");
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                try
+                {
+                    var candidate = Path.Combine(directory.Trim(), configured);
+                    if (File.Exists(candidate)) return Path.GetFullPath(candidate);
+                }
+                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+                {
+                }
+            }
+        }
+
+        foreach (var candidate in CommonInstallCandidates(configured))
+        {
+            try
+            {
+                if (File.Exists(candidate)) return Path.GetFullPath(candidate);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> CommonInstallCandidates(string executable)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            foreach (var root in new[]
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            }.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var segger = Path.Combine(root, "SEGGER");
+                if (!Directory.Exists(segger)) continue;
+                IEnumerable<string> directories;
+                try { directories = Directory.EnumerateDirectories(segger, "JLink*"); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; }
+                foreach (var directory in directories.OrderDescending())
+                    yield return Path.Combine(directory, executable);
+            }
+            yield break;
+        }
+
+        yield return Path.Combine("/usr/bin", executable);
+        yield return Path.Combine("/usr/local/bin", executable);
+        yield return Path.Combine("/opt/SEGGER/JLink", executable);
+
+        const string optSegger = "/opt/SEGGER";
+        if (Directory.Exists(optSegger))
+        {
+            IEnumerable<string> directories;
+            try { directories = Directory.EnumerateDirectories(optSegger, "JLink*"); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { yield break; }
+            foreach (var directory in directories.OrderDescending())
+                yield return Path.Combine(directory, executable);
         }
     }
 
