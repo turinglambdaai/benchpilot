@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Benchpilot.Core;
 
 namespace Benchpilot.Runtime;
@@ -15,6 +16,19 @@ public sealed class BenchValidationException : BenchRuntimeException
 public sealed class BenchTargetNotFoundException : BenchRuntimeException
 {
     public BenchTargetNotFoundException(string message) : base(message) { }
+}
+
+public sealed class BenchBusyException : BenchRuntimeException
+{
+    public BenchBusyException(string targetId, string operation)
+        : base($"Target '{targetId}' is busy with another mutating operation; '{operation}' was not started.")
+    {
+        TargetId = targetId;
+        Operation = operation;
+    }
+
+    public string TargetId { get; }
+    public string Operation { get; }
 }
 
 /// <summary>
@@ -106,6 +120,10 @@ public sealed class BenchResourceRegistry : IDisposable
 /// </summary>
 public sealed class BenchRuntime : IDisposable
 {
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _mutationGates =
+        new(StringComparer.OrdinalIgnoreCase);
+    private bool _disposed;
+
     public BenchProfile Profile { get; }
     public BenchResourceRegistry Resources { get; }
 
@@ -118,6 +136,8 @@ public sealed class BenchRuntime : IDisposable
 
     public BenchTarget Target(string? targetName = null)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         if (Profile.Safety.RequireExplicitTarget && string.IsNullOrWhiteSpace(targetName))
             throw new BenchValidationException(
                 "This bench requires an explicit target for every operation.");
@@ -141,7 +161,36 @@ public sealed class BenchRuntime : IDisposable
         }
     }
 
-    public void Dispose() => Resources.Dispose();
+    internal async Task<T> RunTargetMutation<T>(
+        string targetId,
+        string operation,
+        Func<Task<T>> action,
+        CancellationToken ct)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var gate = _mutationGates.GetOrAdd(targetId, static _ => new SemaphoreSlim(1, 1));
+        if (!await gate.WaitAsync(0, ct))
+            throw new BenchBusyException(targetId, operation);
+
+        try
+        {
+            return await action();
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Resources.Dispose();
+        foreach (var gate in _mutationGates.Values)
+            gate.Dispose();
+        _mutationGates.Clear();
+    }
 }
 
 /// <summary>
@@ -196,27 +245,32 @@ public sealed class BenchTarget
             throw new BenchValidationException(
                 $"Requested voltage {voltage:0.###} V exceeds bench safety limit {maxVoltage:0.###} V.");
 
-        var supply = Capability<IPowerSupply>("power");
-        var result = await supply.PowerOn(voltage, settleMs, ct);
-
-        if (result.Ok &&
-            _runtime.Profile.Safety.MaxCurrentMa is { } maxCurrentMa &&
-            result.CurrentMa > maxCurrentMa)
+        return await _runtime.RunTargetMutation(Id, "power.on", async () =>
         {
-            var off = await supply.PowerOff(ct);
-            var suffix = off.Ok ? "Power output was switched off." : "Power-off also reported an error.";
-            return result with
-            {
-                Ok = false,
-                Settled = false,
-                Error = $"Measured current {result.CurrentMa:0.###} mA exceeds bench safety limit " +
-                    $"{maxCurrentMa:0.###} mA. {suffix}",
-            };
-        }
+            var supply = Capability<IPowerSupply>("power");
+            var result = await supply.PowerOn(voltage, settleMs, ct);
 
-        return result;
+            if (result.Ok &&
+                _runtime.Profile.Safety.MaxCurrentMa is { } maxCurrentMa &&
+                result.CurrentMa > maxCurrentMa)
+            {
+                var off = await supply.PowerOff(ct);
+                var suffix = off.Ok ? "Power output was switched off." : "Power-off also reported an error.";
+                return result with
+                {
+                    Ok = false,
+                    Settled = false,
+                    Error = $"Measured current {result.CurrentMa:0.###} mA exceeds bench safety limit " +
+                        $"{maxCurrentMa:0.###} mA. {suffix}",
+                };
+            }
+
+            return result;
+        }, ct);
     }
 
+    // Power-off is deliberately not blocked by the mutation gate: it remains an
+    // emergency/safety action even while another mutating operation is active.
     public Task<PowerOffResult> PowerOff(CancellationToken ct = default) =>
         Capability<IPowerSupply>("power").PowerOff(ct);
 
@@ -239,15 +293,32 @@ public sealed class BenchTarget
         return Capability<IPowerSupply>("power").CheckCurrent(ltMa, gtMa, ct);
     }
 
-    public Task<FlashResult> Flash(string firmware, CancellationToken ct = default)
+    public Task<FlashResult> Flash(
+        string firmware,
+        string? confirmTarget = null,
+        CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(firmware))
             throw new BenchValidationException("Firmware path cannot be empty.");
-        return Capability<IFlashTarget>("flash").Flash(firmware, ct);
+        ValidateDestructiveConfirmation("flash", confirmTarget);
+        return _runtime.RunTargetMutation(
+            Id,
+            "flash.write",
+            () => Capability<IFlashTarget>("flash").Flash(firmware, ct),
+            ct);
     }
 
-    public Task<ResetResult> Reset(CancellationToken ct = default) =>
-        Capability<IFlashTarget>("flash").Reset(ct);
+    public Task<ResetResult> Reset(
+        string? confirmTarget = null,
+        CancellationToken ct = default)
+    {
+        ValidateDestructiveConfirmation("reset", confirmTarget);
+        return _runtime.RunTargetMutation(
+            Id,
+            "flash.reset",
+            () => Capability<IFlashTarget>("flash").Reset(ct),
+            ct);
+    }
 
     public Task<SerialOpenResult> SerialOpen(
         string? port = null,
@@ -288,5 +359,17 @@ public sealed class BenchTarget
         if (data is null)
             throw new BenchValidationException("Serial data cannot be null.");
         return Capability<ISerialChannel>("serial").Send(data, ct);
+    }
+
+    private void ValidateDestructiveConfirmation(string operation, string? confirmTarget)
+    {
+        if (!_runtime.Profile.Safety.RequireDestructiveConfirmation)
+            return;
+
+        if (!string.Equals(confirmTarget, Id, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new BenchValidationException(
+                $"Destructive operation '{operation}' requires confirmTarget matching target id '{Id}'.");
+        }
     }
 }
