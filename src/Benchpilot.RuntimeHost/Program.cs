@@ -72,6 +72,12 @@ app.MapGet($"{BenchpilotApi.Prefix}/status", (BenchRuntime runtime) =>
         resources));
 });
 
+app.MapPost($"{BenchpilotApi.Prefix}/preflight", async (
+    string? target,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+    await Execute(() => runtime.Preflight(target, ct)));
+
 app.MapPost($"{BenchpilotApi.Prefix}/power/on", async (
     string? target,
     PowerOnRequest request,
