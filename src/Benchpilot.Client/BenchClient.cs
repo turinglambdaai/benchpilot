@@ -59,6 +59,11 @@ public sealed class BenchClient : IDisposable
     public Task<RuntimeStatusResult> Status(CancellationToken ct = default) =>
         Send<RuntimeStatusResult>(HttpMethod.Get, "api/v1/status", null, ct);
 
+    public Task<TargetPreflightResult> Preflight(
+        string? target = null,
+        CancellationToken ct = default) =>
+        Send<TargetPreflightResult>(HttpMethod.Post, WithTarget("api/v1/preflight", target), null, ct);
+
     public Task<PowerOnResult> PowerOn(
         double voltage,
         int settleMs,
