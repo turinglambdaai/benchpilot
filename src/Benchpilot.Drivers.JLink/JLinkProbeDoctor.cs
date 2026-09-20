@@ -53,9 +53,10 @@ internal static class JLinkProbeDoctor
 
             var stdoutTask = process.StandardOutput.ReadToEndAsync();
             var stderrTask = process.StandardError.ReadToEndAsync();
+            var enumerationTimeoutMs = Math.Min(settings.TimeoutMs, 15_000);
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(Math.Min(settings.TimeoutMs, 15_000));
+            timeout.CancelAfter(enumerationTimeoutMs);
 
             try
             {
@@ -65,7 +66,9 @@ internal static class JLinkProbeDoctor
             {
                 TryKill(process);
                 await Drain(stdoutTask, stderrTask);
-                return Failure(baseDetails, "J-Link USB probe enumeration timed out after 15000 ms.");
+                return Failure(
+                    baseDetails,
+                    $"J-Link USB probe enumeration timed out after {enumerationTimeoutMs} ms.");
             }
             catch (OperationCanceledException)
             {
