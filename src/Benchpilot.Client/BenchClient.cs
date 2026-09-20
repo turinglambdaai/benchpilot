@@ -170,7 +170,7 @@ public sealed class BenchClient : IDisposable
             : $"{path}?target={Uri.EscapeDataString(target)}";
 
     private static Uri EnsureTrailingSlash(Uri endpoint) =>
-        endpoint.AbsoluteUri.EndsWith('/', StringComparison.Ordinal)
+        endpoint.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)
             ? endpoint
             : new Uri(endpoint.AbsoluteUri + "/");
 
