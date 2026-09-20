@@ -114,7 +114,7 @@ public sealed class JLinkFlashTarget : IFlashTarget, IResourceHealthCheck
     public JLinkFlashTarget(JLinkSettings settings) =>
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
 
-    public Task<ResourceHealthResult> CheckHealth(CancellationToken ct = default)
+    public async Task<ResourceHealthResult> CheckHealth(CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
         var executable = ResolveCommanderExecutable(_settings.Executable);
@@ -125,26 +125,23 @@ public sealed class JLinkFlashTarget : IFlashTarget, IResourceHealthCheck
             ["interface"] = _settings.Interface,
             ["speedKhz"] = _settings.SpeedKhz.ToString(CultureInfo.InvariantCulture),
             ["serialNumber"] = _settings.SerialNumber ?? string.Empty,
-            ["probeConnectivityChecked"] = "false",
+            ["targetConnectivityChecked"] = "false",
         };
 
         if (executable is null)
         {
-            return Task.FromResult(new ResourceHealthResult(
+            return new ResourceHealthResult(
                 false,
                 "SEGGER J-Link Commander was not found.",
                 details,
-                $"Could not resolve '{_settings.Executable}'. Install the SEGGER J-Link Software and Documentation Pack or configure settings.executable."));
+                $"Could not resolve '{_settings.Executable}'. Install the SEGGER J-Link Software and Documentation Pack or configure settings.executable.");
         }
 
         var enriched = new Dictionary<string, string>(details)
         {
             ["resolvedExecutable"] = executable,
         };
-        return Task.FromResult(new ResourceHealthResult(
-            true,
-            "SEGGER J-Link Commander is available. Preflight does not connect to or reset the probe/target.",
-            enriched));
+        return await JLinkProbeDoctor.Check(_settings, executable, enriched, ct);
     }
 
     public async Task<FlashResult> Flash(string firmwarePath, CancellationToken ct = default)
