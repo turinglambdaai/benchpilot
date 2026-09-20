@@ -69,15 +69,16 @@ public record BenchTargetConfig
 }
 
 /// <summary>
-/// Cross-cutting safety constraints. The schema deliberately starts small;
-/// protocol-specific policy (UDS services, CAN tx ids, protected memory, ...)
-/// will be added without putting secrets or vendor logic in Core.
+/// Cross-cutting safety constraints. Destructive confirmation is intentionally
+/// target-centric: when enabled, flash/reset callers must echo the resolved
+/// target id so a hidden/default target cannot be modified accidentally.
 /// </summary>
 public record BenchSafetyPolicy
 {
     [JsonPropertyName("maxVoltage")] public double? MaxVoltage { get; init; }
     [JsonPropertyName("maxCurrentMa")] public double? MaxCurrentMa { get; init; }
     [JsonPropertyName("requireExplicitTarget")] public bool RequireExplicitTarget { get; init; }
+    [JsonPropertyName("requireDestructiveConfirmation")] public bool RequireDestructiveConfirmation { get; init; }
 }
 
 // Legacy P0 records. Kept so existing profiles continue to deserialize.
