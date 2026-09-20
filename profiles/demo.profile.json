@@ -1,18 +1,34 @@
 {
-  "driver": "simulator",
-  "board": {
-    "name": "Demo Board",
-    "mcu": "simulated-mcu"
+  "schemaVersion": 1,
+  "name": "BenchPilot simulator",
+  "defaultTarget": "demo",
+  "resources": {
+    "sim.demo": {
+      "driver": "simulator",
+      "capabilities": ["power", "serial", "flash"],
+      "settings": {
+        "voltage": 12.0,
+        "settleMs": 2000,
+        "port": "SIM0",
+        "baud": 115200,
+        "firmware": "build/app.elf"
+      }
+    }
   },
-  "power": {
-    "voltage": 12,
-    "settleMs": 2000
+  "targets": {
+    "demo": {
+      "name": "Demo ECU",
+      "mcu": "simulated-mcu",
+      "bindings": {
+        "power": "sim.demo",
+        "serial": "sim.demo",
+        "flash": "sim.demo"
+      }
+    }
   },
-  "serial": {
-    "port": "SIM0",
-    "baud": 115200
-  },
-  "flash": {
-    "firmware": "build/app.elf"
+  "safety": {
+    "maxVoltage": 14.5,
+    "maxCurrentMa": 2000,
+    "requireExplicitTarget": false
   }
 }
