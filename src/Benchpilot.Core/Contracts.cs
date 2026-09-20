@@ -2,9 +2,7 @@ namespace Benchpilot.Core;
 
 // Unified result contract per PRD §6.8: every tool returns a flat record
 // with an `Ok` flag, its business fields, and an optional `Error`.
-// Exit-code semantics (PRD §6.8): 0 ok / 1 generic / 2 validation /
-// 3 not-found / 4 device error. For the MCP surface `Ok` + `Error` is
-// enough; structured exit codes apply to the CLI shell.
+// Exit-code semantics are owned by the CLI shell; MCP uses Ok + Error.
 
 public record PowerOnResult(bool Ok, double Voltage, double CurrentMa, bool Settled, string? Error = null);
 public record PowerOffResult(bool Ok, string? Error = null);
@@ -18,3 +16,25 @@ public record SerialOpenResult(bool Ok, string Port, int Baud, string? Error = n
 public record SerialWaitResult(bool Ok, bool Matched, string? MatchedLine, int ElapsedMs, string? Error = null);
 public record SerialWindowResult(bool Ok, IReadOnlyList<string> Lines, string? Error = null);
 public record SerialSendResult(bool Ok, string? Error = null);
+
+public record ResourceHealthResult(
+    bool Ok,
+    string Summary,
+    IReadOnlyDictionary<string, string>? Details = null,
+    string? Error = null);
+
+public record ResourcePreflightResult(
+    string ResourceId,
+    string Driver,
+    IReadOnlyList<string> Capabilities,
+    bool Ok,
+    string Summary,
+    IReadOnlyDictionary<string, string>? Details = null,
+    string? Error = null);
+
+public record TargetPreflightResult(
+    bool Ok,
+    string TargetId,
+    string TargetName,
+    IReadOnlyList<ResourcePreflightResult> Resources,
+    string? Error = null);

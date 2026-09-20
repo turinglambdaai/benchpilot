@@ -41,6 +41,7 @@ cli() {
 }
 
 cli status --json
+cli preflight --json
 cli power on --voltage 12 --settle-ms 200 --json
 # No --port/--baud here: the shell must let the resource profile own device details.
 cli serial open --json

@@ -8,7 +8,7 @@ namespace Benchpilot.Simulator;
 // channels so power / serial / flash share state and behave like a real board:
 // flashing while powered reboots the simulated firmware, which then streams its
 // boot log over the serial console.
-public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget
+public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget, IResourceHealthCheck
 {
     private readonly object _gate = new();
     private bool _powered;
@@ -152,6 +152,21 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget
 
     public Task<SerialSendResult> Send(string data, CancellationToken ct = default) =>
         Task.FromResult(new SerialSendResult(true));
+
+    public Task<ResourceHealthResult> CheckHealth(CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        IReadOnlyDictionary<string, string> details = new Dictionary<string, string>
+        {
+            ["kind"] = "simulator",
+            ["powered"] = IsOn.ToString(),
+            ["firmware"] = _firmware,
+        };
+        return Task.FromResult(new ResourceHealthResult(
+            true,
+            "Simulator resource is ready.",
+            details));
+    }
 
     private void BootFirmware()
     {

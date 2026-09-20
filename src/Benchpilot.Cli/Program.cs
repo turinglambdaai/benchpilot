@@ -53,6 +53,13 @@ internal static class BenchpilotCli
                     return result.Ok ? 0 : 1;
                 }
 
+                case ("preflight", _):
+                {
+                    var result = await client.Preflight(target, cts.Token);
+                    Print(result, parsed.Json);
+                    return result.Ok ? 0 : 4;
+                }
+
                 case ("power", "on"):
                 {
                     var voltage = parsed.GetDouble("voltage", 12);
@@ -106,8 +113,6 @@ internal static class BenchpilotCli
 
                 case ("serial", "open"):
                 {
-                    // Device-centric values are optional expert overrides. The
-                    // normal Agent path gets port/baud from the target resource.
                     var port = parsed.Get("port");
                     var baud = parsed.GetNullableInt("baud");
                     var result = await client.SerialOpen(port, baud, target, cts.Token);
@@ -206,7 +211,8 @@ internal static class BenchpilotCli
 BenchPilot CLI - client for the resident ECU bench runtime
 
 Usage:
-  benchpilot status [--json] [--endpoint URL]
+  benchpilot status    [--json] [--endpoint URL]
+  benchpilot preflight [--target ID] [--json]
 
   benchpilot power on      [--target ID] [--voltage V] [--settle-ms N] [--json]
   benchpilot power off     [--target ID] [--json]
@@ -220,6 +226,9 @@ Usage:
   benchpilot serial wait <pattern>  [--target ID] [--timeout-ms N] [--json]
   benchpilot serial window          [--target ID] [--lines N] [--filter TEXT] [--json]
   benchpilot serial send <data>     [--target ID] [--json]
+
+`preflight` is non-destructive. It checks configured resource readiness without
+power-cycling, resetting or flashing the target.
 
 `serial open` normally uses port/baud from the target resource profile. --port and
 --baud are optional expert/debug overrides.
@@ -235,7 +244,7 @@ Exit codes:
   1 operation/assertion failure
   2 validation error
   3 target/resource not found
-  4 runtime/device unavailable or device error
+  4 runtime/device unavailable or device/preflight error
   5 target busy (another mutating operation is active)
 """);
     }
