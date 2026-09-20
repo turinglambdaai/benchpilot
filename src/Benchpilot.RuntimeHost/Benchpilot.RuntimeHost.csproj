@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Benchpilot.Core\Benchpilot.Core.csproj" />
+    <ProjectReference Include="..\Benchpilot.Drivers.JLink\Benchpilot.Drivers.JLink.csproj" />
     <ProjectReference Include="..\Benchpilot.Drivers.Serial\Benchpilot.Drivers.Serial.csproj" />
     <ProjectReference Include="..\Benchpilot.Protocol\Benchpilot.Protocol.csproj" />
     <ProjectReference Include="..\Benchpilot.Runtime\Benchpilot.Runtime.csproj" />
