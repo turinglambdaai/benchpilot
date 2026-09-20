@@ -32,7 +32,8 @@ public record RuntimeStatusResult(
 public record PowerOnRequest(double Voltage = 12, int SettleMs = 2000);
 public record CurrentReadRequest(int WindowMs = 500);
 public record CurrentCheckRequest(double? LtMa = null, double? GtMa = null);
-public record FlashRequest(string Firmware);
+public record FlashRequest(string Firmware, string? ConfirmTarget = null);
+public record ResetRequest(string? ConfirmTarget = null);
 // Null values mean "use the resource profile defaults". Device-centric values
 // are expert overrides, not required Agent inputs.
 public record SerialOpenRequest(string? Port = null, int? Baud = null);

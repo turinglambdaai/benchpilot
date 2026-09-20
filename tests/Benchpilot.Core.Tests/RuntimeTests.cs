@@ -74,6 +74,61 @@ public class RuntimeTests
     }
 
     [Fact]
+    public async Task Destructive_confirmation_must_match_resolved_target_when_required()
+    {
+        var profile = ProfileLoader.DefaultSimulator() with
+        {
+            Safety = new BenchSafetyPolicy { RequireDestructiveConfirmation = true },
+        };
+        var (runtime, _) = NewRuntime(profile);
+        var target = runtime.Target();
+        Assert.True((await target.PowerOn(12, 0)).Ok);
+
+        var missing = await Assert.ThrowsAsync<BenchValidationException>(
+            () => target.Flash("build/app.elf"));
+        Assert.Contains("confirmTarget", missing.Message);
+        Assert.Contains("demo", missing.Message);
+
+        await Assert.ThrowsAsync<BenchValidationException>(
+            () => target.Reset("wrong-target"));
+
+        Assert.True((await target.Flash("build/app.elf", "demo")).Ok);
+        Assert.True((await target.Reset("demo")).Ok);
+    }
+
+    [Fact]
+    public async Task Concurrent_mutating_operations_are_rejected_instead_of_queued()
+    {
+        var (runtime, _) = NewRuntime();
+        var target = runtime.Target();
+        Assert.True((await target.PowerOn(12, 0)).Ok);
+
+        var flash = target.Flash("build/app.elf");
+        var busy = await Assert.ThrowsAsync<BenchBusyException>(() => target.Reset());
+
+        Assert.Equal("demo", busy.TargetId);
+        Assert.Equal("flash.reset", busy.Operation);
+        Assert.Contains("busy", busy.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True((await flash).Ok);
+    }
+
+    [Fact]
+    public async Task Power_off_remains_available_during_an_active_mutation()
+    {
+        var (runtime, bench) = NewRuntime();
+        var target = runtime.Target();
+        Assert.True((await target.PowerOn(12, 0)).Ok);
+
+        var flash = target.Flash("build/app.elf");
+        var off = await target.PowerOff();
+
+        Assert.True(off.Ok);
+        Assert.False(bench.IsOn);
+        await flash;
+        Assert.False(bench.IsOn);
+    }
+
+    [Fact]
     public void Explicit_target_policy_is_enforced_by_runtime()
     {
         var profile = ProfileLoader.DefaultSimulator() with

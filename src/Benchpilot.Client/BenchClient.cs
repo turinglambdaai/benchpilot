@@ -89,11 +89,25 @@ public sealed class BenchClient : IDisposable
         string firmware,
         string? target = null,
         CancellationToken ct = default) =>
+        Flash(firmware, target, null, ct);
+
+    public Task<FlashResult> Flash(
+        string firmware,
+        string? target,
+        string? confirmTarget,
+        CancellationToken ct = default) =>
         Send<FlashResult>(HttpMethod.Post, WithTarget("api/v1/flash/write", target),
-            new FlashRequest(firmware), ct);
+            new FlashRequest(firmware, confirmTarget), ct);
 
     public Task<ResetResult> Reset(string? target = null, CancellationToken ct = default) =>
-        Send<ResetResult>(HttpMethod.Post, WithTarget("api/v1/flash/reset", target), null, ct);
+        Reset(target, null, ct);
+
+    public Task<ResetResult> Reset(
+        string? target,
+        string? confirmTarget,
+        CancellationToken ct = default) =>
+        Send<ResetResult>(HttpMethod.Post, WithTarget("api/v1/flash/reset", target),
+            new ResetRequest(confirmTarget), ct);
 
     public Task<SerialOpenResult> SerialOpen(
         string? port = null,

@@ -104,13 +104,14 @@ app.MapPost($"{BenchpilotApi.Prefix}/flash/write", async (
     FlashRequest request,
     BenchRuntime runtime,
     CancellationToken ct) =>
-    await Execute(() => runtime.Target(target).Flash(request.Firmware, ct)));
+    await Execute(() => runtime.Target(target).Flash(request.Firmware, request.ConfirmTarget, ct)));
 
 app.MapPost($"{BenchpilotApi.Prefix}/flash/reset", async (
     string? target,
+    ResetRequest request,
     BenchRuntime runtime,
     CancellationToken ct) =>
-    await Execute(() => runtime.Target(target).Reset(ct)));
+    await Execute(() => runtime.Target(target).Reset(request.ConfirmTarget, ct)));
 
 app.MapPost($"{BenchpilotApi.Prefix}/serial/open", async (
     string? target,
@@ -166,6 +167,12 @@ static async Task<IResult> Execute<T>(Func<Task<T>> operation)
     catch (KeyNotFoundException ex)
     {
         return Results.NotFound(new ApiError(false, "not_found", ex.Message));
+    }
+    catch (BenchBusyException ex)
+    {
+        return Results.Json(
+            new ApiError(false, "busy", ex.Message),
+            statusCode: StatusCodes.Status409Conflict);
     }
     catch (InvalidOperationException ex)
     {
