@@ -136,7 +136,7 @@ public sealed record ScpiPowerSettings(
 /// Generic raw-TCP SCPI power supply. Vendor differences are expressed as
 /// profile command templates; the Runtime sees only IPowerSupply.
 /// </summary>
-public sealed class ScpiPowerSupply : IPowerSupply, IDisposable
+public sealed class ScpiPowerSupply : IPowerSupply, IResourceHealthCheck, IDisposable
 {
     private readonly ScpiPowerSettings _settings;
     private readonly SemaphoreSlim _ioGate = new(1, 1);
@@ -295,6 +295,44 @@ public sealed class ScpiPowerSupply : IPowerSupply, IDisposable
         finally
         {
             _ioGate.Release();
+        }
+    }
+
+    public async Task<ResourceHealthResult> CheckHealth(CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        try
+        {
+            var idn = (await Identify(ct)).Trim();
+            IReadOnlyDictionary<string, string> details = new Dictionary<string, string>
+            {
+                ["host"] = _settings.Host,
+                ["port"] = _settings.Port.ToString(CultureInfo.InvariantCulture),
+                ["idn"] = idn,
+                ["outputState"] = IsOn ? "on" : "off",
+            };
+            return new ResourceHealthResult(
+                true,
+                "SCPI instrument is reachable and responded to its identify query.",
+                details);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (IsTransportOrProtocolError(ex))
+        {
+            CloseConnectionCore();
+            IReadOnlyDictionary<string, string> details = new Dictionary<string, string>
+            {
+                ["host"] = _settings.Host,
+                ["port"] = _settings.Port.ToString(CultureInfo.InvariantCulture),
+            };
+            return new ResourceHealthResult(
+                false,
+                "SCPI instrument is not ready.",
+                details,
+                ex.Message);
         }
     }
 
