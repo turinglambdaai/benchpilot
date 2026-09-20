@@ -3,9 +3,14 @@ name: CI
 on:
   push:
     branches: [main, master]
-  tags: ['v*']
+    tags: ['v*']
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   build-test:
@@ -25,4 +30,8 @@ jobs:
       - name: Build
         run: dotnet build --no-restore -c Release
       - name: Test
-        run: dotnet test --no-build -c Release --logger normal
+        run: dotnet test --no-build -c Release --logger "console;verbosity=normal"
+      - name: Resident runtime smoke
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: bash scripts/smoke-runtime.sh

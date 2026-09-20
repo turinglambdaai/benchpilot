@@ -1,0 +1,186 @@
+using Benchpilot.Core;
+using Benchpilot.Protocol;
+using Benchpilot.Runtime;
+using Benchpilot.Simulator;
+using Microsoft.AspNetCore.Hosting;
+
+var profilePath = Environment.GetEnvironmentVariable("BENCHPILOT_PROFILE");
+var profile = string.IsNullOrWhiteSpace(profilePath)
+    ? ProfileLoader.DefaultSimulator()
+    : ProfileLoader.Load(profilePath);
+
+var endpointText = Environment.GetEnvironmentVariable("BENCHPILOT_ENDPOINT");
+if (string.IsNullOrWhiteSpace(endpointText))
+    endpointText = "http://127.0.0.1:5640";
+
+if (!Uri.TryCreate(endpointText, UriKind.Absolute, out var endpoint))
+    throw new InvalidOperationException($"Invalid BENCHPILOT_ENDPOINT: {endpointText}");
+if (endpoint.Scheme != Uri.UriSchemeHttp)
+    throw new InvalidOperationException("The foundation runtime currently supports local HTTP only.");
+if (!endpoint.IsLoopback)
+    throw new InvalidOperationException(
+        "BenchPilot Runtime refuses non-loopback binding at this milestone. " +
+        "Remote benches require an authenticated transport and explicit policy.");
+
+var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.UseUrls(endpoint.GetLeftPart(UriPartial.Authority));
+builder.Services.AddSingleton(profile);
+builder.Services.AddSingleton(sp =>
+{
+    var registry = new BenchResourceRegistry(profile);
+
+    foreach (var (resourceId, resource) in profile.Resources)
+    {
+        if (!string.Equals(resource.Driver, "simulator", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Resource '{resourceId}' uses driver '{resource.Driver}', which is not shipped yet. " +
+                "The resident Runtime boundary is ready; real serial/SCPI/probe drivers land next.");
+        }
+
+        registry.Register(resourceId, new SimulatedBench());
+    }
+
+    return new BenchRuntime(profile, registry);
+});
+
+var app = builder.Build();
+
+app.MapGet("/healthz", () => Results.Ok(new { ok = true }));
+
+app.MapGet($"{BenchpilotApi.Prefix}/status", (BenchRuntime runtime) =>
+{
+    var targets = runtime.Profile.Targets
+        .Select(x => new TargetSummary(
+            x.Key,
+            string.IsNullOrWhiteSpace(x.Value.Name) ? x.Key : x.Value.Name,
+            x.Value.Mcu,
+            x.Value.Bindings.Keys.Order(StringComparer.OrdinalIgnoreCase).ToArray()))
+        .OrderBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    var resources = runtime.Profile.Resources
+        .Select(x => new ResourceSummary(
+            x.Key,
+            x.Value.Driver,
+            x.Value.Capabilities.Order(StringComparer.OrdinalIgnoreCase).ToArray(),
+            runtime.Resources.IsRegistered(x.Key)))
+        .OrderBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    return Results.Json(new RuntimeStatusResult(
+        true,
+        runtime.Profile.Name,
+        runtime.Profile.SchemaVersion,
+        runtime.Profile.DefaultTarget,
+        targets,
+        resources));
+});
+
+app.MapPost($"{BenchpilotApi.Prefix}/power/on", async (
+    string? target,
+    PowerOnRequest request,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+    await Execute(() => runtime.Target(target).PowerOn(request.Voltage, request.SettleMs, ct)));
+
+app.MapPost($"{BenchpilotApi.Prefix}/power/off", async (
+    string? target,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+    await Execute(() => runtime.Target(target).PowerOff(ct)));
+
+app.MapPost($"{BenchpilotApi.Prefix}/power/current/read", async (
+    string? target,
+    CurrentReadRequest request,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+    await Execute(() => runtime.Target(target).ReadCurrent(request.WindowMs, ct)));
+
+app.MapPost($"{BenchpilotApi.Prefix}/power/current/check", async (
+    string? target,
+    CurrentCheckRequest request,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+    await Execute(() => runtime.Target(target).CheckCurrent(request.LtMa, request.GtMa, ct)));
+
+app.MapPost($"{BenchpilotApi.Prefix}/flash/write", async (
+    string? target,
+    FlashRequest request,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+    await Execute(() => runtime.Target(target).Flash(request.Firmware, ct)));
+
+app.MapPost($"{BenchpilotApi.Prefix}/flash/reset", async (
+    string? target,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+    await Execute(() => runtime.Target(target).Reset(ct)));
+
+app.MapPost($"{BenchpilotApi.Prefix}/serial/open", async (
+    string? target,
+    SerialOpenRequest request,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+    await Execute(() => runtime.Target(target).SerialOpen(request.Port, request.Baud, ct)));
+
+app.MapPost($"{BenchpilotApi.Prefix}/serial/wait", async (
+    string? target,
+    SerialWaitRequest request,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+    await Execute(() => runtime.Target(target).SerialWaitFor(request.Pattern, request.TimeoutMs, ct)));
+
+app.MapPost($"{BenchpilotApi.Prefix}/serial/window", async (
+    string? target,
+    SerialWindowRequest request,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+    await Execute(() => runtime.Target(target).SerialReadWindow(request.Lines, request.Filter, ct)));
+
+app.MapPost($"{BenchpilotApi.Prefix}/serial/send", async (
+    string? target,
+    SerialSendRequest request,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+    await Execute(() => runtime.Target(target).SerialSend(request.Data, ct)));
+
+app.Logger.LogInformation(
+    "BenchPilot Runtime '{BenchName}' listening on {Endpoint}. Profile: {Profile}",
+    profile.Name,
+    endpoint.GetLeftPart(UriPartial.Authority),
+    string.IsNullOrWhiteSpace(profilePath) ? "built-in simulator" : profilePath);
+
+await app.RunAsync();
+
+static async Task<IResult> Execute<T>(Func<Task<T>> operation)
+{
+    try
+    {
+        return Results.Json(await operation());
+    }
+    catch (BenchValidationException ex)
+    {
+        return Results.BadRequest(new ApiError(false, "validation", ex.Message));
+    }
+    catch (BenchTargetNotFoundException ex)
+    {
+        return Results.NotFound(new ApiError(false, "not_found", ex.Message));
+    }
+    catch (KeyNotFoundException ex)
+    {
+        return Results.NotFound(new ApiError(false, "not_found", ex.Message));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Json(
+            new ApiError(false, "runtime_state", ex.Message),
+            statusCode: StatusCodes.Status409Conflict);
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(
+            new ApiError(false, "internal", ex.Message),
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+}

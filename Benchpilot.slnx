@@ -1,6 +1,11 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Benchpilot.Core/Benchpilot.Core.csproj" />
+    <Project Path="src/Benchpilot.Protocol/Benchpilot.Protocol.csproj" />
+    <Project Path="src/Benchpilot.Runtime/Benchpilot.Runtime.csproj" />
+    <Project Path="src/Benchpilot.RuntimeHost/Benchpilot.RuntimeHost.csproj" />
+    <Project Path="src/Benchpilot.Client/Benchpilot.Client.csproj" />
+    <Project Path="src/Benchpilot.Cli/Benchpilot.Cli.csproj" />
     <Project Path="src/Benchpilot.Mcp/Benchpilot.Mcp.csproj" />
     <Project Path="src/Benchpilot.Simulator/Benchpilot.Simulator.csproj" />
   </Folder>

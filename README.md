@@ -1,176 +1,294 @@
 # BenchPilot
 
-> A hardware-aware MCP server that lets an AI agent run the embedded debug loop — `power → flash → observe → judge` — against a real or simulated bench.
+> **The hardware runtime for embedded coding agents — focused on ECU development.**
 
-[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
-[![MCP](https://img.shields.io/badge/MCP-server-00B4D8)](https://modelcontextprotocol.io/)
-[![License](https://img.shields.io/github/license/turinglambdaai/benchpilot)](LICENSE)
-[![CI](https://github.com/turinglambdaai/benchpilot/actions/workflows/ci.yml/badge.svg)](https://github.com/turinglambdaai/benchpilot/actions/workflows/ci.yml)
+BenchPilot gives humans, CI jobs and AI coding agents one stateful interface to real embedded targets: power them, flash them, observe them, diagnose them and validate behavior.
 
-**中文**：BenchPilot 把硬件调试通道（电源 / 串口 / 烧录）封装成 AI agent 可调用的 MCP 工具，让 agent 能跑通「上电 → 烧录 → 观测 → 判断」的硬件闭环。本仓库是 **P0 概念验证 DEMO**，内置一个硬件模拟器——无需真机即可跑通完整闭环。
+The product loop is intentionally narrow:
 
----
+```text
+Build -> Flash -> Run -> Observe -> Diagnose -> Fix
+```
+
+BenchPilot is **not** a CANoe clone. It does not aim to reproduce full vehicle-network simulation, CAPL, ADAS simulation or hundreds of analysis windows. CAN/CAN FD, DBC, ISO-TP, UDS and DoIP are added when they help complete the ECU development loop.
+
+> Current status: **runtime foundation validated**. A resident Runtime, versioned local API, CLI and MCP adapter share one simulated power + serial + flash bench state. Windows/Linux build and tests pass, and CI executes the full resident-runtime CLI smoke loop. The next milestone is real serial + J-Link + SCPI hardware.
 
 ## Why BenchPilot?
 
-Pure-software AI agents cannot reach a bench: they can't see the board, toggle power, or watch a UART console. Existing options each leave a gap:
+A coding agent can edit and build firmware, but a real ECU is surrounded by fragmented tools:
 
-| Option | Gap |
-|---|---|
-| **embedded-debugger-mcp** | JTAG/SWD only — no serial console, no power, single board |
-| **CCS AI MCP** (TI, commercial) | Parasitic on a running IDE; no power/CAN; serial is bare passthrough, no context compression |
-| **BootLoop** (commercial HIL) | Closed, MCU-focused, heavy |
+```text
+J-Link / OpenOCD
++ serial terminal
++ CAN adapter
++ SCPI power supply
++ UDS tool
++ scripts
+```
 
-BenchPilot's position: a **headless, multi-channel orchestration layer** that any MCP-capable agent can drive, decoupled from any particular IDE.
+Those tools expose device-centric primitives and independent state. BenchPilot adds an ECU-centric layer:
 
-## This Demo (P0)
+```text
+Target: radar
+  power  -> psu.main
+  flash  -> probe.radar
+  serial -> uart.radar
+  can    -> can.vehicle
+```
 
-This repository implements the **P0 milestone** from the [product spec](https://github.com/turinglambdaai/benchpilot): the **power + serial + flash loop**, backed by a **built-in hardware simulator**. No physical hardware is required — the simulator behaves like a real board:
+The caller asks for the `radar` target and a semantic operation. Runtime resolves the actual hardware resource and enforces validation/safety before a driver call.
 
-- A virtual bench supply with a realistic inrush → settle → steady current curve
-- A virtual firmware that streams a boot log (`... → System Ready`) over a virtual console
-- Flashing reboots the firmware; the serial console reflects it
+This is the foundation for Agent-friendly operations such as:
 
-An agent can autonomously run the full loop and reach a verdict, with zero hardware attached.
+```text
+flash(radar)
+wait_boot(radar)
+wait_signal(radar, "RadarStatus", RUNNING)
+assert_current(radar, < 100 mA)
+capture_failure_window(radar)
+```
 
-## Features
+rather than forcing a language model to consume unbounded raw serial/CAN streams.
 
-- **10 MCP tools** across three channels: power, flash, serial
-- **Simulated bench** — power/serial/flash share state like a real board
-- **Context-compression primitive**: `serial_wait_for` returns only the matched event, not the raw byte flood
-- **Idempotent operations**: `power_on` is a no-op if already on
-- **Unified JSON contract** on every tool (`{ ok, ...fields, error? }`)
-- **Interface-driven kernel**: swap the simulator for a real SCPI supply + probe backend by changing one DI registration — tools and kernel don't change
+## Runtime model
 
-## Requirements
+BenchPilot has exactly one owner of live hardware state:
 
-| Dependency | Version |
-|---|---|
-| .NET SDK | 10.0 or later |
-| An MCP-capable client | Claude Code, ZCode, VS Code (Copilot), Cursor, etc. |
-| Git | source control |
+```text
+                  Human / CI / Agent
+                         |
+              +----------+----------+
+              |          |          |
+             CLI        MCP       Studio
+              |          |          |
+              +----------+----------+
+                         |
+                  Benchpilot.Client
+                         |
+                  local /api/v1
+                         |
+                    benchpilotd
+                  state + safety
+                         |
+        +----------------+----------------+
+        |                |                |
+      Power            Probe           Networks
+        |                |                |
+      SCPI             J-Link       SocketCAN / PCAN
+                         |
+                        ECU
+```
 
-## Quick Start
+`benchpilotd` is the resident process. CLI, MCP and future GUI clients **must not open hardware independently**. This guarantees shared device state, one safety boundary and one place for future resource locking/capture buffers.
 
-### 1. Clone & build
+The foundation transport is HTTP JSON bound to loopback only. `benchpilotd` refuses non-loopback binding until an authenticated remote-bench transport exists.
+
+## Current simulator
+
+The simulator behaves like one small physical bench:
+
+- virtual bench supply with inrush -> settle -> idle current;
+- virtual firmware boot log;
+- flash/reset behavior;
+- shared state across power, serial and flash;
+- context-compressed serial wait observation;
+- Runtime safety validation;
+- CLI and MCP clients over the same resident state.
+
+No physical hardware is required.
+
+### Requirements
+
+- .NET SDK 10.0+
+- Git
+- an MCP-capable client for Agent use (optional)
+
+### Build and test
 
 ```bash
 git clone https://github.com/turinglambdaai/benchpilot.git
 cd benchpilot
 dotnet build
-dotnet test      # 8 tests, incl. the full P0 loop
+dotnet test
 ```
 
-### 2. Wire it into your MCP client
+## Quick start
 
-Add BenchPilot to your client's MCP config. For Claude Code / ZCode (`mcp.json` or equivalent):
-
-```json
-{
-  "mcpServers": {
-    "benchpilot": {
-      "command": "dotnet",
-      "args": ["run", "--project", "PATH/TO/benchpilot/src/Benchpilot.Mcp", "--no-build"]
-    }
-  }
-}
-```
-
-For VS Code (`.vscode/mcp.json`):
-
-```json
-{
-  "servers": {
-    "benchpilot": {
-      "type": "stdio",
-      "command": "dotnet",
-      "args": ["run", "--project", "src/Benchpilot.Mcp", "--no-build"]
-    }
-  }
-}
-```
-
-### 3. Run the loop
-
-Ask your agent:
-
-> Power on the bench at 12V, flash `build/app.elf`, wait for the console to print `Ready`, then check that the idle current is under 100mA, and power off.
-
-The agent will call `power_on → flash → serial_wait_for → check_current → power_off` autonomously and report the result.
-
-## Tool Reference
-
-| Tool | Channel | Description |
-|---|---|---|
-| `power_on` | power | Apply voltage, wait to settle, report current |
-| `power_off` | power | Switch off the supply |
-| `read_current` | power | Sample current over a window (avg/peak/samples) |
-| `check_current` | power | Assert current is below/above a threshold |
-| `flash` | flash | Program firmware; reboots into it |
-| `reset` | flash | Software reset; re-runs boot |
-| `serial_open` | serial | Open the console port |
-| `serial_wait_for` | serial | Block until a pattern appears (context-compression primitive) |
-| `serial_read_window` | serial | Read the last N lines, optionally filtered |
-| `serial_send` | serial | Write to the console |
-
-All tools return a flat JSON object with an `ok` flag and an optional `error`.
-
-## Project Structure
-
-```
-benchpilot/
-├── src/
-│   ├── Benchpilot.Core/         # kernel: channel abstractions, profile, orchestration
-│   │   ├── Abstractions/        #   IPowerSupply, ISerialChannel, IFlashTarget
-│   │   ├── Profile/             #   BenchProfile schema + loader
-│   │   └── Kernel/              #   BenchKernel (resident connection state)
-│   ├── Benchpilot.Simulator/    # the virtual bench (implements all 3 channels)
-│   └── Benchpilot.Mcp/          # stdio MCP server shell + tool definitions
-│       └── Tools/               #   PowerTools, FlashTools, SerialTools
-├── tests/
-│   └── Benchpilot.Core.Tests/   # xUnit: the full P0 loop against the kernel
-└── profiles/
-    └── demo.profile.json        # zero-config simulator profile
-```
-
-## Architecture
-
-BenchPilot follows a **valuable-kernel / replaceable-shell** split (mirroring [Taskly](https://github.com/turinglambdaai/taskly)):
-
-```
-agent (Claude Code / ZCode / Cursor)
-        ↕  stdio MCP
-  Benchpilot.Mcp          ← thin shell: [McpServerTool] methods
-        ↕  DI
-  Benchpilot.Core         ← kernel: IPowerSupply / ISerialChannel / IFlashTarget
-        ↕  implements
-  Benchpilot.Simulator    ← this DEMO's virtual bench
-  (future) Benchpilot.Hardware  ← real SCPI supply + System.IO.Ports + probe-rs
-```
-
-The kernel and tools know only the channel **interfaces**. Swapping the simulator for real hardware is a single DI registration change in `Program.cs` — nothing above the interface seam is touched. That is the whole point: the agent's tools stay identical whether the bench is virtual or real.
-
-## Development
+### 1. Start the resident Runtime
 
 ```bash
-dotnet build
-dotnet test
-dotnet run --project src/Benchpilot.Mcp      # starts the stdio MCP server
+dotnet run --project src/Benchpilot.RuntimeHost
 ```
 
-Set `BENCHPILOT_PROFILE` to point at a profile file, otherwise the zero-config simulator defaults are used.
+Defaults:
 
-## Roadmap
+```text
+BENCHPILOT_ENDPOINT=http://127.0.0.1:5640/
+profile=built-in simulator
+```
 
-This repo is the **P0** milestone. The full product spec tracks further phases:
+Set `BENCHPILOT_PROFILE` to a profile path to override the built-in simulator profile.
 
-- **P0** ✅ — power + serial + flash loop (this repo, simulator-backed)
-- **P1** — CAN channel (`can_send`, `can_wait_resp`, DBC signal decode)
-- **P2** — sequence orchestration engine + toolchain resolver + GUI
-- **P3** — UDS diagnostics + AUTOSAR toolchain fusion
+### 2. Inspect the bench from CLI
 
-Real hardware backends (SCPI power, `System.IO.Ports` console, probe-rs/DAP flashing) land behind the existing interfaces — no kernel or tool changes required.
+```bash
+dotnet run --project src/Benchpilot.Cli -- status
+```
+
+Machine-oriented output:
+
+```bash
+dotnet run --project src/Benchpilot.Cli -- status --json
+```
+
+The first useful simulated ECU loop is:
+
+```bash
+dotnet run --project src/Benchpilot.Cli -- power on --voltage 12 --json
+dotnet run --project src/Benchpilot.Cli -- flash write build/app.elf --json
+dotnet run --project src/Benchpilot.Cli -- serial wait Ready --timeout-ms 5000 --json
+dotnet run --project src/Benchpilot.Cli -- power check --lt-ma 100 --json
+dotnet run --project src/Benchpilot.Cli -- power off --json
+```
+
+CLI exit codes are intentionally stable:
+
+```text
+0 success
+1 operation/assertion failure
+2 validation error
+3 target/resource not found
+4 runtime/device unavailable or device error
+```
+
+### 3. Run the MCP adapter
+
+With `benchpilotd` still running:
+
+```bash
+dotnet run --project src/Benchpilot.Mcp
+```
+
+The MCP process is only a stdio protocol adapter. It calls the same resident Runtime as CLI, so an Agent and a terminal observe the same ECU/bench state.
+
+Example Agent task:
+
+> Power on the demo ECU at 12 V, flash `build/app.elf`, wait for the console to print `Ready`, verify idle current is below 100 mA, then power it off.
+
+## Resource / target profile
+
+BenchPilot does not assume that a real bench has one monolithic `hardware` driver. A target can combine independent vendor resources:
+
+```json
+{
+  "schemaVersion": 1,
+  "defaultTarget": "radar",
+  "resources": {
+    "psu.main": {
+      "driver": "scpi",
+      "capabilities": ["power"]
+    },
+    "probe.radar": {
+      "driver": "jlink",
+      "capabilities": ["flash", "debug"]
+    },
+    "uart.radar": {
+      "driver": "system-serial",
+      "capabilities": ["serial"]
+    },
+    "can.vehicle": {
+      "driver": "pcan",
+      "capabilities": ["can"]
+    }
+  },
+  "targets": {
+    "radar": {
+      "mcu": "TC397",
+      "bindings": {
+        "power": "psu.main",
+        "flash": "probe.radar",
+        "serial": "uart.radar",
+        "can": "can.vehicle"
+      }
+    }
+  },
+  "safety": {
+    "maxVoltage": 14.5,
+    "requireExplicitTarget": true
+  }
+}
+```
+
+Legacy P0 profiles are normalized automatically so the simulator demo remains compatible.
+
+## Project structure
+
+```text
+benchpilot/
+├── src/
+│   ├── Benchpilot.Core/         # vendor-neutral domain/profile contracts
+│   ├── Benchpilot.Protocol/     # versioned local API request/status contracts
+│   ├── Benchpilot.Runtime/      # target operations, safety, live resources
+│   ├── Benchpilot.RuntimeHost/  # benchpilotd resident loopback API process
+│   ├── Benchpilot.Client/       # shared IPC client for every shell
+│   ├── Benchpilot.Cli/          # stable commands, JSON and exit codes
+│   ├── Benchpilot.Mcp/          # thin stdio MCP -> Runtime proxy
+│   └── Benchpilot.Simulator/    # deterministic virtual bench
+├── tests/
+│   └── Benchpilot.Core.Tests/
+├── profiles/
+│   └── demo.profile.json
+├── scripts/
+│   └── smoke-runtime.sh
+├── docs/
+│   ├── ARCHITECTURE.md
+│   └── adr/
+└── ROADMAP.md
+```
+
+Future driver/protocol/Flash/Studio projects plug into these boundaries rather than opening parallel hardware stacks.
+
+## Product priorities
+
+Near-term work is deliberately a vertical slice rather than broad protocol coverage:
+
+1. resource-driver factory/lifecycle boundary;
+2. real serial + J-Link + SCPI power;
+3. CAN/CAN FD + DBC observations via SocketCAN and PCAN;
+4. ISO-TP + UDS;
+5. professional, hardware-aware UDS Flash Engine;
+6. DoIP after the CAN/UDS path is strong;
+7. Studio GUI over the same Runtime API.
+
+See [ROADMAP.md](ROADMAP.md).
+
+## GUI and language strategy
+
+The hardware-facing Runtime is implemented in .NET/C# to reduce native/vendor integration risk. GUI technology is intentionally decoupled from Runtime.
+
+That means an Avalonia frontend is a conservative option, while a Racket/Glaze frontend remains viable if it demonstrates a concrete development-speed or UX advantage. Both would use `Benchpilot.Client` / the same versioned local API rather than owning devices.
+
+See [ADR 0001](docs/adr/0001-runtime-language.md).
+
+## Long-term flashing direction
+
+Professional flashing is a first-class product capability, not three raw UDS calls. The intended architecture separates:
+
+```text
+Flash workflow
+      |
+Flash Engine
+      |
+UDS client
+      |
+ISO-TP / DoIP
+      |
+CAN FD / Ethernet
+```
+
+A future visual workflow editor and textual DSL will compile to the same typed execution plan. Safety, target fingerprinting, voltage/current monitoring, Security Provider integration, verification and recovery belong below the Agent surface.
 
 ## License
 
-Licensed under the [Apache License 2.0](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE).
