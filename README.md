@@ -12,7 +12,7 @@ Build -> Flash -> Run -> Observe -> Diagnose -> Fix
 
 BenchPilot is **not** a CANoe clone. It does not aim to reproduce full vehicle-network simulation, CAPL, ADAS simulation or hundreds of analysis windows. CAN/CAN FD, DBC, ISO-TP, UDS and DoIP are added when they help complete the ECU development loop.
 
-> Current status: **foundation / simulator milestone**. The repository has a working simulated power + serial + flash loop and is being migrated to a multi-resource Runtime before real hardware drivers land.
+> Current status: **runtime foundation / simulator milestone**. A resident Runtime, versioned local API, CLI and MCP adapter now share one simulated power + serial + flash bench state. Real hardware drivers are the next vertical slice.
 
 ## Why BenchPilot?
 
@@ -37,7 +37,7 @@ Target: radar
   can    -> can.vehicle
 ```
 
-The caller asks for the `radar` target and a semantic capability. Runtime resolves the actual hardware resource.
+The caller asks for the `radar` target and a semantic operation. Runtime resolves the actual hardware resource and enforces validation/safety before a driver call.
 
 This is the foundation for Agent-friendly operations such as:
 
@@ -51,7 +51,40 @@ capture_failure_window(radar)
 
 rather than forcing a language model to consume unbounded raw serial/CAN streams.
 
-## Current demo
+## Runtime model
+
+BenchPilot has exactly one owner of live hardware state:
+
+```text
+                  Human / CI / Agent
+                         |
+              +----------+----------+
+              |          |          |
+             CLI        MCP       Studio
+              |          |          |
+              +----------+----------+
+                         |
+                  Benchpilot.Client
+                         |
+                  local /api/v1
+                         |
+                    benchpilotd
+                  state + safety
+                         |
+        +----------------+----------------+
+        |                |                |
+      Power            Probe           Networks
+        |                |                |
+      SCPI             J-Link       SocketCAN / PCAN
+                         |
+                        ECU
+```
+
+`benchpilotd` is the resident process. CLI, MCP and future GUI clients **must not open hardware independently**. This guarantees shared device state, one safety boundary and one place for future resource locking/capture buffers.
+
+The foundation transport is HTTP JSON bound to loopback only. `benchpilotd` refuses non-loopback binding until an authenticated remote-bench transport exists.
+
+## Current simulator
 
 The simulator behaves like one small physical bench:
 
@@ -59,8 +92,9 @@ The simulator behaves like one small physical bench:
 - virtual firmware boot log;
 - flash/reset behavior;
 - shared state across power, serial and flash;
-- context-compressed `serial_wait_for` observation;
-- MCP tool surface.
+- context-compressed serial wait observation;
+- Runtime safety validation;
+- CLI and MCP clients over the same resident state.
 
 No physical hardware is required.
 
@@ -79,13 +113,64 @@ dotnet build
 dotnet test
 ```
 
-### Run the MCP server
+## Quick start
+
+### 1. Start the resident Runtime
+
+```bash
+dotnet run --project src/Benchpilot.RuntimeHost
+```
+
+Defaults:
+
+```text
+BENCHPILOT_ENDPOINT=http://127.0.0.1:5640/
+profile=built-in simulator
+```
+
+Set `BENCHPILOT_PROFILE` to a profile path to override the built-in simulator profile.
+
+### 2. Inspect the bench from CLI
+
+```bash
+dotnet run --project src/Benchpilot.Cli -- status
+```
+
+Machine-oriented output:
+
+```bash
+dotnet run --project src/Benchpilot.Cli -- status --json
+```
+
+The first useful simulated ECU loop is:
+
+```bash
+dotnet run --project src/Benchpilot.Cli -- power on --voltage 12 --json
+dotnet run --project src/Benchpilot.Cli -- flash write build/app.elf --json
+dotnet run --project src/Benchpilot.Cli -- serial wait Ready --timeout-ms 5000 --json
+dotnet run --project src/Benchpilot.Cli -- power check --lt-ma 100 --json
+dotnet run --project src/Benchpilot.Cli -- power off --json
+```
+
+CLI exit codes are intentionally stable:
+
+```text
+0 success
+1 operation/assertion failure
+2 validation error
+3 target/resource not found
+4 runtime/device unavailable or device error
+```
+
+### 3. Run the MCP adapter
+
+With `benchpilotd` still running:
 
 ```bash
 dotnet run --project src/Benchpilot.Mcp
 ```
 
-Set `BENCHPILOT_PROFILE` to a profile path to override the built-in simulator profile.
+The MCP process is now only a stdio protocol adapter. It calls the same resident Runtime as CLI, so an Agent and a terminal observe the same ECU/bench state.
 
 Example Agent task:
 
@@ -93,7 +178,7 @@ Example Agent task:
 
 ## Resource / target profile
 
-BenchPilot no longer assumes that a real bench has one `hardware` driver. A target can combine independent vendor resources:
+BenchPilot does not assume that a real bench has one monolithic `hardware` driver. A target can combine independent vendor resources:
 
 ```json
 {
@@ -127,48 +212,29 @@ BenchPilot no longer assumes that a real bench has one `hardware` driver. A targ
         "can": "can.vehicle"
       }
     }
+  },
+  "safety": {
+    "maxVoltage": 14.5,
+    "requireExplicitTarget": true
   }
 }
 ```
 
 Legacy P0 profiles are normalized automatically so the simulator demo remains compatible.
 
-## Architecture
-
-```text
-                    Human / CI / Agent
-                           |
-                 +---------+---------+
-                 |         |         |
-                CLI       MCP      Studio
-                 |         |         |
-                 +---------+---------+
-                           |
-                  BenchPilot Runtime
-                 state / safety / plans
-                           |
-           +---------------+---------------+
-           |               |               |
-         Power           Probe          Networks
-           |               |               |
-         SCPI            J-Link      SocketCAN / PCAN
-                           |
-                          ECU
-```
-
-The important boundary is **Runtime**, not MCP. MCP is one replaceable shell. CLI, GUI and future integrations must use the same stateful runtime and safety behavior.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design principles.
-
 ## Project structure
 
 ```text
 benchpilot/
 ├── src/
-│   ├── Benchpilot.Core/         # vendor-neutral domain contracts/profile model
-│   ├── Benchpilot.Runtime/      # target -> capability -> live resource runtime
-│   ├── Benchpilot.Simulator/    # deterministic virtual bench
-│   └── Benchpilot.Mcp/          # thin MCP adapter
+│   ├── Benchpilot.Core/         # vendor-neutral domain/profile contracts
+│   ├── Benchpilot.Protocol/     # versioned local API request/status contracts
+│   ├── Benchpilot.Runtime/      # target operations, safety, live resources
+│   ├── Benchpilot.RuntimeHost/  # benchpilotd resident loopback API process
+│   ├── Benchpilot.Client/       # shared IPC client for every shell
+│   ├── Benchpilot.Cli/          # stable commands, JSON and exit codes
+│   ├── Benchpilot.Mcp/          # thin stdio MCP -> Runtime proxy
+│   └── Benchpilot.Simulator/    # deterministic virtual bench
 ├── tests/
 │   └── Benchpilot.Core.Tests/
 ├── profiles/
@@ -179,13 +245,13 @@ benchpilot/
 └── ROADMAP.md
 ```
 
-Planned boundaries include `Benchpilot.Cli`, hardware driver projects, automotive protocol layers, a professional Flash Engine and a GUI client.
+Future driver/protocol/Flash/Studio projects plug into these boundaries rather than opening parallel hardware stacks.
 
 ## Product priorities
 
 Near-term work is deliberately a vertical slice rather than broad protocol coverage:
 
-1. resident Runtime + CLI + stable structured errors;
+1. finish Runtime lifecycle/locking/timeouts and structured operation errors;
 2. real serial + J-Link + SCPI power;
 3. CAN/CAN FD + DBC observations via SocketCAN and PCAN;
 4. ISO-TP + UDS;
@@ -199,7 +265,7 @@ See [ROADMAP.md](ROADMAP.md).
 
 The hardware-facing Runtime is implemented in .NET/C# to reduce native/vendor integration risk. GUI technology is intentionally decoupled from Runtime.
 
-That means an Avalonia frontend is a conservative option, while a Racket/Glaze frontend remains viable if it demonstrates a concrete development-speed or UX advantage. BenchPilot should choose technology per layer based on product risk, not language preference.
+That means an Avalonia frontend is a conservative option, while a Racket/Glaze frontend remains viable if it demonstrates a concrete development-speed or UX advantage. Both would use `Benchpilot.Client` / the same versioned local API rather than owning devices.
 
 See [ADR 0001](docs/adr/0001-runtime-language.md).
 
