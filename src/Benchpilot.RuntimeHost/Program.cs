@@ -1,4 +1,5 @@
 using Benchpilot.Core;
+using Benchpilot.Drivers.Serial;
 using Benchpilot.Protocol;
 using Benchpilot.Runtime;
 using Benchpilot.Simulator;
@@ -22,27 +23,17 @@ if (!endpoint.IsLoopback)
         "BenchPilot Runtime refuses non-loopback binding at this milestone. " +
         "Remote benches require an authenticated transport and explicit policy.");
 
+var drivers = new BenchDriverRegistry(new IBenchResourceFactory[]
+{
+    new SimulatorResourceFactory(),
+    new SystemSerialResourceFactory(),
+});
+
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(endpoint.GetLeftPart(UriPartial.Authority));
 builder.Services.AddSingleton(profile);
-builder.Services.AddSingleton(sp =>
-{
-    var registry = new BenchResourceRegistry(profile);
-
-    foreach (var (resourceId, resource) in profile.Resources)
-    {
-        if (!string.Equals(resource.Driver, "simulator", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                $"Resource '{resourceId}' uses driver '{resource.Driver}', which is not shipped yet. " +
-                "The resident Runtime boundary is ready; real serial/SCPI/probe drivers land next.");
-        }
-
-        registry.Register(resourceId, new SimulatedBench());
-    }
-
-    return new BenchRuntime(profile, registry);
-});
+builder.Services.AddSingleton(drivers);
+builder.Services.AddSingleton(sp => drivers.CreateRuntime(profile));
 
 var app = builder.Build();
 
@@ -146,10 +137,11 @@ app.MapPost($"{BenchpilotApi.Prefix}/serial/send", async (
     await Execute(() => runtime.Target(target).SerialSend(request.Data, ct)));
 
 app.Logger.LogInformation(
-    "BenchPilot Runtime '{BenchName}' listening on {Endpoint}. Profile: {Profile}",
+    "BenchPilot Runtime '{BenchName}' listening on {Endpoint}. Profile: {Profile}. Drivers: {Drivers}",
     profile.Name,
     endpoint.GetLeftPart(UriPartial.Authority),
-    string.IsNullOrWhiteSpace(profilePath) ? "built-in simulator" : profilePath);
+    string.IsNullOrWhiteSpace(profilePath) ? "built-in simulator" : profilePath,
+    string.Join(", ", drivers.DriverNames.Order(StringComparer.OrdinalIgnoreCase)));
 
 await app.RunAsync();
 
