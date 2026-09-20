@@ -1,5 +1,6 @@
 using Benchpilot.Core;
 using Benchpilot.Mcp.Tools;
+using Benchpilot.Runtime;
 using Benchpilot.Simulator;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -25,10 +26,10 @@ builder.Services.AddMcpServer()
 
 builder.Services.AddSingleton(profile);
 
-// P0/P1 bridge: the profile is already multi-resource/multi-target capable,
-// while the only shipped backend is still one composite simulator instance.
-// Real hardware drivers will register each resource independently in the
-// resident Runtime instead of adding another monolithic "hardware" driver.
+// P0/P1 bridge: the profile and Runtime already understand independent
+// resources, while the only shipped backend is still one composite simulator.
+// Real SCPI, serial, probe and CAN resources will register their own live
+// instances in BenchRuntime; shells will not change.
 var power = ProfileLoader.ResolveResource(profile, "power");
 var serial = ProfileLoader.ResolveResource(profile, "serial");
 var flash = ProfileLoader.ResolveResource(profile, "flash");
@@ -45,14 +46,16 @@ if (!allSimulator || !oneCompositeResource)
 {
     throw new InvalidOperationException(
         "This milestone ships only the composite simulator backend. " +
-        "The profile model already supports independent resources; real SCPI, serial, " +
-        "probe and CAN drivers will be hosted by Benchpilot.Runtime in the next milestone.");
+        "The profile model and Runtime already support independent resources; " +
+        "real hardware drivers land behind that boundary next.");
 }
 
 builder.Services.AddSingleton<SimulatedBench>();
-builder.Services.AddSingleton<IPowerSupply>(sp => sp.GetRequiredService<SimulatedBench>());
-builder.Services.AddSingleton<ISerialChannel>(sp => sp.GetRequiredService<SimulatedBench>());
-builder.Services.AddSingleton<IFlashTarget>(sp => sp.GetRequiredService<SimulatedBench>());
-builder.Services.AddSingleton<BenchKernel>();
+builder.Services.AddSingleton(sp =>
+{
+    var registry = new BenchResourceRegistry(profile);
+    registry.Register(power.ResourceId, sp.GetRequiredService<SimulatedBench>());
+    return new BenchRuntime(profile, registry);
+});
 
 await builder.Build().RunAsync();
