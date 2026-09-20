@@ -13,10 +13,10 @@ internal sealed class SerialTools
     public SerialTools(BenchClient client) => _client = client;
 
     [McpServerTool]
-    [Description("Open a target's serial console. Uses the profile default target when target is omitted unless policy requires an explicit target.")]
+    [Description("Open a target's serial console using the resource profile. Port/baud overrides are optional expert controls; Agents normally only specify the semantic target.")]
     public async Task<SerialOpenResult> SerialOpen(
-        [Description("Serial port identifier. Driver defaults may be used by future Runtime backends.")] string port = "SIM0",
-        [Description("Baud rate")] int baud = 115200,
+        [Description("Optional OS serial-port override. Omit to use the target resource profile.")] string? port = null,
+        [Description("Optional baud-rate override. Omit to use the target resource profile.")] int? baud = null,
         [Description("Semantic target id. Omit to use defaultTarget when allowed.")] string? target = null)
         => await _client.SerialOpen(port, baud, target, CancellationToken.None);
 
