@@ -31,3 +31,7 @@ jobs:
         run: dotnet build --no-restore -c Release
       - name: Test
         run: dotnet test --no-build -c Release --logger "console;verbosity=normal"
+      - name: Resident runtime smoke
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: bash scripts/smoke-runtime.sh
