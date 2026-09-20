@@ -8,7 +8,7 @@ The product boundary is the ECU development loop:
 Build -> Flash -> Run -> Observe -> Diagnose -> Fix
 ```
 
-A human, CI job and AI agent must be able to execute the same operations against the same stateful bench runtime.
+A human, CI job and AI agent must execute the same operations against the same stateful bench runtime.
 
 ## Design principles
 
@@ -22,23 +22,92 @@ A human, CI job and AI agent must be able to execute the same operations against
 
 3. **Core is vendor-neutral**
    - Vendor SDKs and native libraries stay behind driver adapters.
-   - Core owns domain contracts, plans, observations, safety rules and stable error semantics.
+   - Core owns domain/profile contracts; protocol/API contracts live separately from vendor drivers.
 
-4. **Runtime is stateful; shells are replaceable**
-   - Hardware connections, capture buffers and ECU state live in one resident runtime.
-   - CLI, MCP and GUI are clients/adapters, not alternate implementations of hardware logic.
+4. **Exactly one process owns hardware state**
+   - `benchpilotd` is the resident owner of live device handles, capture buffers and future session/lock state.
+   - CLI, MCP and GUI never open the same hardware independently.
 
-5. **Observations, not byte floods**
+5. **All shells cross the same Runtime safety boundary**
+   - Target selection, validation and safety checks occur in `Benchpilot.Runtime` before a driver call.
+   - A shell cannot bypass voltage/target/destructive-operation policy by calling a lower-level adapter.
+
+6. **Observations, not byte floods**
    - Agent-facing APIs should prefer `wait_signal`, `assert_current`, `wait_boot`, or `capture_failure_window` over unbounded raw streams.
    - Raw data remains available as an artifact or expert/debug view.
 
-6. **Intent is separated from protocol mechanics**
+7. **Intent is separated from protocol mechanics**
    - A caller asks to `flash(target, image, plan)`.
    - The Flash Engine owns UDS/ISO-TP/DoIP sequencing, retry rules, timing, validation and recovery.
 
-7. **Safety is enforced below the Agent**
-   - Voltage/current limits, target identity checks, protected memory, UDS permissions and destructive-operation policy belong in Runtime.
-   - An Agent cannot bypass those rules by choosing a lower-level shell.
+8. **Remote access is not local IPC with the bind address changed**
+   - Foundation IPC is loopback-only HTTP JSON.
+   - Remote benches require authentication, authorization, TLS/secure transport, resource leases and audit policy before non-loopback binding is permitted.
+
+## Runtime/client topology
+
+```text
+                         Agent / Human / CI
+                                |
+              +-----------------+-----------------+
+              |                 |                 |
+             CLI               MCP              Studio
+              |                 |                 |
+              +-----------------+-----------------+
+                                |
+                         Benchpilot.Client
+                                |
+                         HTTP JSON /api/v1
+                         loopback transport
+                                |
+                         +------v------+
+                         | benchpilotd |
+                         +------+------+
+                                |
+                       Benchpilot.Runtime
+                   target + safety + state
+                                |
+       +------------------------+------------------------+
+       |                        |                        |
+     Power                    Probe                    CAN
+    drivers                  drivers                 drivers
+       |                        |                        |
+     SCPI                    J-Link              SocketCAN/PCAN
+                                |
+                               ECU
+```
+
+The important boundary is not MCP. MCP is a stdio adapter that proxies to `benchpilotd`. A terminal command and an Agent therefore observe the same stateful ECU session.
+
+## Source dependencies
+
+```text
+Benchpilot.Core
+     ^
+     |
+Benchpilot.Protocol
+     ^
+     |
+Benchpilot.Client ---------------------+
+     ^                                 |
+     |                                 |
+  CLI / MCP / future Studio            |
+                                       |
+Benchpilot.Runtime <---- RuntimeHost --+
+     ^                    |
+     |                    +--> Simulator / future Drivers
+     |
+ future protocol/flash execution layers
+```
+
+Rules:
+
+- `Core` must not reference vendor SDKs, ASP.NET, MCP or GUI frameworks.
+- `Runtime` must not depend on CLI/MCP/Studio.
+- `Client` is the shared shell-side IPC implementation.
+- `RuntimeHost` owns transport hosting and driver composition.
+- MCP is a protocol adapter, not a second runtime.
+- Studio will be a client, regardless of whether its GUI is Avalonia or Racket/Glaze.
 
 ## Resource and target model
 
@@ -76,59 +145,76 @@ Example:
         "can": "can.vehicle"
       }
     }
+  },
+  "safety": {
+    "maxVoltage": 14.5,
+    "requireExplicitTarget": true
   }
 }
 ```
 
-This schema is intentionally capability-oriented. CAN FD, ISO-TP, UDS and future DoIP support should extend the model rather than force a new top-level architecture.
+This schema is capability-oriented. CAN FD, ISO-TP, UDS and future DoIP support should extend the capability/resource model rather than force a new top-level architecture.
 
-## Intended component boundaries
+## Runtime operation boundary
+
+A resource driver remains a low-level implementation detail:
 
 ```text
-                        Human / CI / Agent
-                               |
-                 +-------------+-------------+
-                 |             |             |
-                CLI           MCP          Studio
-                 |             |             |
-                 +-------------+-------------+
-                               |
-                     BenchPilot Runtime
-                    (resident process)
-                               |
-          +--------------------+--------------------+
-          |                    |                    |
-      Execution            Observation           Safety
-        Plans                Engine              Policy
-          |                    |                    |
-          +--------------------+--------------------+
-                               |
-       +-------------+---------+---------+-------------+
-       |             |                   |             |
-     Power         Probe              Serial          CAN
-    drivers       drivers             drivers        drivers
-       |             |                   |             |
-     SCPI          J-Link              FTDI       SocketCAN/PCAN
-                               |
-                              ECU
+IPowerSupply.PowerOn(...)
+IFlashTarget.Flash(...)
+ISerialChannel.WaitFor(...)
 ```
 
-Planned source layout:
+Shells do not receive those interfaces. They request target operations:
+
+```text
+runtime.Target("radar").PowerOn(...)
+runtime.Target("radar").Flash(...)
+runtime.Target("radar").SerialWaitFor(...)
+```
+
+The target operation layer is where validation and safety run. Current checks include explicit-target policy, voltage limits and bounded argument validation. Future checks belong here or in execution-plan validation, not in UI/MCP code.
+
+## IPC contract
+
+Foundation IPC uses a small versioned JSON surface:
+
+```text
+GET  /api/v1/status
+POST /api/v1/power/on
+POST /api/v1/power/off
+POST /api/v1/power/current/read
+POST /api/v1/power/current/check
+POST /api/v1/flash/write
+POST /api/v1/flash/reset
+POST /api/v1/serial/open
+POST /api/v1/serial/wait
+POST /api/v1/serial/window
+POST /api/v1/serial/send
+```
+
+`target` is an optional query parameter when the profile permits a default target. API request/status records live in `Benchpilot.Protocol`; `Benchpilot.Client` is the canonical client implementation.
+
+This HTTP transport is intentionally an implementation detail behind the client. A future local named-pipe/Unix-domain-socket transport can replace it without changing the target/runtime domain model.
+
+## Project layout
 
 ```text
 src/
-  Benchpilot.Core/          # domain contracts, profiles, plans, observations
-  Benchpilot.Runtime/       # resident resource/session lifecycle and execution
-  Benchpilot.Drivers.*/     # vendor/OS adapters
-  Benchpilot.Protocols.*/   # CAN/ISO-TP/UDS/DoIP where appropriate
-  Benchpilot.Flash/         # image model + programming workflow engine
-  Benchpilot.Cli/           # stable command + JSON contract
-  Benchpilot.Mcp/           # thin Agent adapter
+  Benchpilot.Core/          # vendor-neutral domain/profile contracts
+  Benchpilot.Protocol/      # versioned IPC request/status contracts
+  Benchpilot.Runtime/       # target operations, safety, live resource registry
+  Benchpilot.RuntimeHost/   # benchpilotd: resident process + loopback API
+  Benchpilot.Client/        # shared client used by every shell
+  Benchpilot.Cli/           # deterministic CLI/JSON/exit codes
+  Benchpilot.Mcp/           # stdio MCP -> resident Runtime proxy
   Benchpilot.Simulator/     # deterministic virtual bench
-  Benchpilot.Studio/        # GUI client; technology intentionally decoupled
-```
 
-The repository is currently migrating toward this layout incrementally. P0 remains runnable while the runtime boundary is introduced.
+  Benchpilot.Drivers.*/     # future vendor/OS adapters
+  Benchpilot.Protocols.*/   # future CAN/ISO-TP/UDS/DoIP layers
+  Benchpilot.Flash/         # future image model + programming workflow engine
+  Benchpilot.Studio/        # future GUI client
+```
 
 ## Workflow / Flash DSL
 
