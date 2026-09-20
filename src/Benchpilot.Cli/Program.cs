@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using Benchpilot.Client;
-using Benchpilot.Core;
 using Benchpilot.Protocol;
 
 return await BenchpilotCli.Run(args);
@@ -11,7 +10,18 @@ internal static class BenchpilotCli
 {
     public static async Task<int> Run(string[] args)
     {
-        var parsed = CliArguments.Parse(args);
+        CliArguments parsed;
+        try
+        {
+            parsed = CliArguments.Parse(args);
+        }
+        catch (ArgumentException ex)
+        {
+            Print(new ApiError(false, "validation", ex.Message),
+                args.Any(x => string.Equals(x, "--json", StringComparison.OrdinalIgnoreCase)));
+            return 2;
+        }
+
         if (parsed.HasFlag("help") || parsed.Positionals.Count == 0)
         {
             PrintUsage();
@@ -130,7 +140,7 @@ internal static class BenchpilotCli
 
                 default:
                     throw new ArgumentException(
-                        $"Unknown command: {string.Join(' ', parsed.Positionals)}");
+                        $"Unknown command: {string.Join(" ", parsed.Positionals)}");
             }
         }
         catch (BenchClientException ex)
