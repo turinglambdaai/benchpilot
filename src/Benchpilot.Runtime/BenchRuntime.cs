@@ -19,13 +19,16 @@ public sealed class BenchTargetNotFoundException : BenchRuntimeException
 
 /// <summary>
 /// Owns live resource instances for one bench process. Device handles are
-/// registered once and reused so all shells observe the same state.
+/// registered once and reused so all shells observe the same state. The
+/// registry also owns resource lifetime and disposes driver instances when the
+/// resident Runtime stops.
 /// </summary>
-public sealed class BenchResourceRegistry
+public sealed class BenchResourceRegistry : IDisposable
 {
     private readonly BenchProfile _profile;
     private readonly Dictionary<string, object> _instances =
         new(StringComparer.OrdinalIgnoreCase);
+    private bool _disposed;
 
     public BenchResourceRegistry(BenchProfile profile)
     {
@@ -35,6 +38,7 @@ public sealed class BenchResourceRegistry
 
     public void Register(string resourceId, object instance)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(resourceId);
         ArgumentNullException.ThrowIfNull(instance);
 
@@ -47,12 +51,25 @@ public sealed class BenchResourceRegistry
                 $"Resource '{resourceId}' is already registered in this runtime.");
     }
 
-    public bool IsRegistered(string resourceId) => _instances.ContainsKey(resourceId);
+    public bool IsRegistered(string resourceId)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return _instances.ContainsKey(resourceId);
+    }
 
-    public IReadOnlyCollection<string> RegisteredResourceIds => _instances.Keys.ToArray();
+    public IReadOnlyCollection<string> RegisteredResourceIds
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _instances.Keys.ToArray();
+        }
+    }
 
     public T Get<T>(string resourceId) where T : class
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         if (!_instances.TryGetValue(resourceId, out var instance))
             throw new InvalidOperationException(
                 $"Resource '{resourceId}' is declared but has no live driver instance.");
@@ -64,6 +81,22 @@ public sealed class BenchResourceRegistry
 
         return typed;
     }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        var disposed = new HashSet<object>(ReferenceEqualityComparer.Instance);
+        foreach (var instance in _instances.Values.Reverse())
+        {
+            if (!disposed.Add(instance)) continue;
+            if (instance is IDisposable disposable)
+                disposable.Dispose();
+        }
+
+        _instances.Clear();
+    }
 }
 
 /// <summary>
@@ -71,7 +104,7 @@ public sealed class BenchResourceRegistry
 /// semantic capabilities onto long-lived resource instances and owns the
 /// validation/safety boundary. Shells must not call hardware drivers directly.
 /// </summary>
-public sealed class BenchRuntime
+public sealed class BenchRuntime : IDisposable
 {
     public BenchProfile Profile { get; }
     public BenchResourceRegistry Resources { get; }
@@ -107,6 +140,8 @@ public sealed class BenchRuntime
             throw new BenchTargetNotFoundException(ex.Message);
         }
     }
+
+    public void Dispose() => Resources.Dispose();
 }
 
 /// <summary>
@@ -197,14 +232,14 @@ public sealed class BenchTarget
         Capability<IFlashTarget>("flash").Reset(ct);
 
     public Task<SerialOpenResult> SerialOpen(
-        string port,
-        int baud,
+        string? port = null,
+        int? baud = null,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(port))
-            throw new BenchValidationException("Serial port cannot be empty.");
-        if (baud <= 0)
-            throw new BenchValidationException("Serial baud must be greater than zero.");
+        if (port is not null && string.IsNullOrWhiteSpace(port))
+            throw new BenchValidationException("Serial port override cannot be empty.");
+        if (baud is <= 0)
+            throw new BenchValidationException("Serial baud override must be greater than zero.");
         return Capability<ISerialChannel>("serial").Open(port, baud, ct);
     }
 
