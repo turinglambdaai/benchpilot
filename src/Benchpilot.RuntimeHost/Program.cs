@@ -91,6 +91,12 @@ app.MapPost($"{BenchpilotApi.Prefix}/power/off", async (
     CancellationToken ct) =>
     await Execute(() => runtime.Target(target).PowerOff(ct)));
 
+app.MapPost($"{BenchpilotApi.Prefix}/power/emergency-off", async (
+    string? target,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+    await Execute(() => runtime.Target(target).EmergencyPowerOff(ct)));
+
 app.MapPost($"{BenchpilotApi.Prefix}/power/current/read", async (
     string? target,
     CurrentReadRequest request,
