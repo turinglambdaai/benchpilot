@@ -60,6 +60,26 @@ public class ScpiPowerTests
     }
 
     [Fact]
+    public async Task Health_check_uses_identify_query_without_changing_output_state()
+    {
+        await using var server = new FakeScpiServer(new Dictionary<string, string?>
+        {
+            ["*IDN?"] = "BenchCo,PSU-1,1234,1.0",
+        });
+
+        using var supply = NewSupply(server.Port, ioTimeoutMs: 2000);
+
+        var result = await supply.CheckHealth();
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal("BenchCo,PSU-1,1234,1.0", result.Details?["idn"]);
+        Assert.False(supply.IsOn);
+        await server.WaitForCommand("*IDN?", TimeSpan.FromSeconds(2));
+        Assert.DoesNotContain("OUTP ON", server.Commands);
+        Assert.DoesNotContain("OUTP OFF", server.Commands);
+    }
+
+    [Fact]
     public void Factory_requires_host_and_power_capability()
     {
         var missingHost = ProfileLoader.LoadJson("""
