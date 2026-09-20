@@ -2,18 +2,14 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - master
-      - 'foundation/**'
-      - 'feature/**'
-      - 'fix/**'
+    branches: [main, master]
     tags: ['v*']
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
