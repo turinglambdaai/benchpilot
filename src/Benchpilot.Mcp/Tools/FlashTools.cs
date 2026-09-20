@@ -1,25 +1,30 @@
 using System.ComponentModel;
 using Benchpilot.Core;
+using Benchpilot.Runtime;
 using ModelContextProtocol.Server;
 
 namespace Benchpilot.Mcp.Tools;
 
-// Programming channel (PRD §6.2). In the DEMO these are backed by the
-// simulator; a future DAP-backed hardware driver (probe-rs / OpenOCD / J-Link)
-// implements the same IFlashTarget behind the kernel.
+// Low-level programming tools remain available for the P0 loop. Professional
+// UDS flashing will sit above this capability as a validated transaction/plan.
 internal sealed class FlashTools
 {
-    private readonly BenchKernel _kernel;
-    public FlashTools(BenchKernel kernel) => _kernel = kernel;
+    private readonly BenchRuntime _runtime;
+    public FlashTools(BenchRuntime runtime) => _runtime = runtime;
+
+    private IFlashTarget FlashTarget(string? target) =>
+        _runtime.Target(target).Capability<IFlashTarget>("flash");
 
     [McpServerTool]
-    [Description("Flash firmware to the target. The target must be powered on first. Flashing reboots the device into the new firmware, which then streams its boot log over the serial console. Returns bytes written and duration.")]
+    [Description("Flash firmware to a target using its configured flash capability. Uses defaultTarget when target is omitted.")]
     public async Task<FlashResult> Flash(
-        [Description("Path to the firmware image, e.g. build/app.elf")] string firmware = "build/app.elf")
-        => await _kernel.Flash.Flash(firmware, CancellationToken.None);
+        [Description("Path to the firmware image, e.g. build/app.elf")] string firmware = "build/app.elf",
+        [Description("Semantic target id. Omit to use defaultTarget.")] string? target = null)
+        => await FlashTarget(target).Flash(firmware, CancellationToken.None);
 
     [McpServerTool]
-    [Description("Software-reset the target. Re-runs the boot sequence of the current firmware.")]
-    public async Task<ResetResult> Reset()
-        => await _kernel.Flash.Reset(CancellationToken.None);
+    [Description("Reset the target through its configured flash/debug capability.")]
+    public async Task<ResetResult> Reset(
+        [Description("Semantic target id. Omit to use defaultTarget.")] string? target = null)
+        => await FlashTarget(target).Reset(CancellationToken.None);
 }
