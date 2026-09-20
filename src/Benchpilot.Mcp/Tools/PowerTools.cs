@@ -21,10 +21,16 @@ internal sealed class PowerTools
         => await _client.PowerOn(voltage, settleMs, target, CancellationToken.None);
 
     [McpServerTool]
-    [Description("Switch off the target's bench supply.")]
+    [Description("Switch off the target's bench supply. This normal shutdown respects the target mutation gate and will not interrupt an active flash/reset.")]
     public async Task<PowerOffResult> PowerOff(
         [Description("Semantic target id. Omit to use defaultTarget when allowed.")] string? target = null)
         => await _client.PowerOff(target, CancellationToken.None);
+
+    [McpServerTool]
+    [Description("Emergency safety shutdown. Switch off target power even when another mutating operation is active. Use only when leaving the bench energized is more dangerous than interrupting the active operation.")]
+    public async Task<PowerOffResult> EmergencyPowerOff(
+        [Description("Semantic target id. Omit to use defaultTarget when allowed.")] string? target = null)
+        => await _client.EmergencyPowerOff(target, CancellationToken.None);
 
     [McpServerTool]
     [Description("Sample target current draw over a bounded window and return avg / peak / raw samples in mA.")]

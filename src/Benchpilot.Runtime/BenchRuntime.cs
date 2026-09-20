@@ -269,9 +269,23 @@ public sealed class BenchTarget
         }, ct);
     }
 
-    // Power-off is deliberately not blocked by the mutation gate: it remains an
-    // emergency/safety action even while another mutating operation is active.
+    /// <summary>
+    /// Normal operator shutdown. This participates in the target mutation gate,
+    /// so an ordinary CLI/MCP power-off cannot interrupt an active flash/reset.
+    /// </summary>
     public Task<PowerOffResult> PowerOff(CancellationToken ct = default) =>
+        _runtime.RunTargetMutation(
+            Id,
+            "power.off",
+            () => Capability<IPowerSupply>("power").PowerOff(ct),
+            ct);
+
+    /// <summary>
+    /// Explicit safety escape hatch. This is the only shell-facing power action
+    /// allowed to bypass the mutation gate so an operator can de-energize a
+    /// bench during an unsafe condition even while another mutation is active.
+    /// </summary>
+    public Task<PowerOffResult> EmergencyPowerOff(CancellationToken ct = default) =>
         Capability<IPowerSupply>("power").PowerOff(ct);
 
     public Task<CurrentReading> ReadCurrent(int windowMs, CancellationToken ct = default)

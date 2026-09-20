@@ -76,6 +76,13 @@ internal static class BenchpilotCli
                     return result.Ok ? 0 : 4;
                 }
 
+                case ("power", "emergency-off"):
+                {
+                    var result = await client.EmergencyPowerOff(target, cts.Token);
+                    Print(result, parsed.Json);
+                    return result.Ok ? 0 : 4;
+                }
+
                 case ("power", "current"):
                 {
                     var windowMs = parsed.GetInt("window-ms", 500);
@@ -214,10 +221,11 @@ Usage:
   benchpilot status    [--json] [--endpoint URL]
   benchpilot preflight [--target ID] [--json]
 
-  benchpilot power on      [--target ID] [--voltage V] [--settle-ms N] [--json]
-  benchpilot power off     [--target ID] [--json]
-  benchpilot power current [--target ID] [--window-ms N] [--json]
-  benchpilot power check   [--target ID] [--lt-ma N] [--gt-ma N] [--json]
+  benchpilot power on            [--target ID] [--voltage V] [--settle-ms N] [--json]
+  benchpilot power off           [--target ID] [--json]
+  benchpilot power emergency-off [--target ID] [--json]
+  benchpilot power current       [--target ID] [--window-ms N] [--json]
+  benchpilot power check         [--target ID] [--lt-ma N] [--gt-ma N] [--json]
 
   benchpilot flash write <firmware> [--target ID] [--confirm-target ID] [--json]
   benchpilot flash reset            [--target ID] [--confirm-target ID] [--json]
@@ -229,6 +237,10 @@ Usage:
 
 `preflight` is non-destructive. It checks configured resource readiness without
 power-cycling, resetting or flashing the target.
+
+Normal `power off` participates in the target mutation gate and will return busy
+rather than interrupting an active flash/reset. `power emergency-off` is the
+explicit safety escape hatch and is allowed to bypass that gate.
 
 `serial open` normally uses port/baud from the target resource profile. --port and
 --baud are optional expert/debug overrides.
