@@ -58,7 +58,7 @@ public sealed class SystemSerialResourceFactory : IBenchResourceFactory
 /// handle, keeps a bounded line buffer locally and exposes semantic WaitFor /
 /// ReadWindow operations so Agents do not consume an unbounded raw stream.
 /// </summary>
-public sealed class SystemSerialChannel : ISerialChannel, IDisposable
+public sealed class SystemSerialChannel : ISerialChannel, IResourceHealthCheck, IDisposable
 {
     private readonly object _portGate = new();
     private readonly object _lineGate = new();
@@ -218,6 +218,63 @@ public sealed class SystemSerialChannel : ISerialChannel, IDisposable
             {
                 return Task.FromResult(new SerialSendResult(false, ex.Message));
             }
+        }
+    }
+
+    public Task<ResourceHealthResult> CheckHealth(CancellationToken ct = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ct.ThrowIfCancellationRequested();
+
+        if (IsOpen)
+        {
+            IReadOnlyDictionary<string, string> openDetails = new Dictionary<string, string>
+            {
+                ["port"] = _port?.PortName ?? _defaultPort ?? string.Empty,
+                ["baud"] = (_port?.BaudRate ?? _defaultBaud).ToString(),
+                ["open"] = "true",
+            };
+            return Task.FromResult(new ResourceHealthResult(
+                true,
+                "Serial channel is already open.",
+                openDetails));
+        }
+
+        if (string.IsNullOrWhiteSpace(_defaultPort))
+        {
+            return Task.FromResult(new ResourceHealthResult(
+                false,
+                "No serial port is configured.",
+                Error: "Set resources.<id>.settings.port before running preflight."));
+        }
+
+        try
+        {
+            var discovered = SerialPort.GetPortNames();
+            var present = discovered.Contains(_defaultPort, StringComparer.OrdinalIgnoreCase)
+                || File.Exists(_defaultPort);
+            IReadOnlyDictionary<string, string> details = new Dictionary<string, string>
+            {
+                ["port"] = _defaultPort,
+                ["baud"] = _defaultBaud.ToString(),
+                ["open"] = "false",
+                ["discoveredPorts"] = string.Join(",", discovered.Order(StringComparer.OrdinalIgnoreCase).Take(32)),
+            };
+
+            return Task.FromResult(new ResourceHealthResult(
+                present,
+                present
+                    ? $"Configured serial port '{_defaultPort}' is present."
+                    : $"Configured serial port '{_defaultPort}' was not found.",
+                details,
+                present ? null : $"Serial port '{_defaultPort}' is not currently visible to the OS."));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return Task.FromResult(new ResourceHealthResult(
+                false,
+                "Could not enumerate serial ports.",
+                Error: ex.Message));
         }
     }
 
