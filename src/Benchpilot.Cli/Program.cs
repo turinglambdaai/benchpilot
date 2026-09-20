@@ -104,8 +104,10 @@ internal static class BenchpilotCli
 
                 case ("serial", "open"):
                 {
-                    var port = parsed.Get("port") ?? "SIM0";
-                    var baud = parsed.GetInt("baud", 115200);
+                    // Device-centric values are optional expert overrides. The
+                    // normal Agent path gets port/baud from the target resource.
+                    var port = parsed.Get("port");
+                    var baud = parsed.GetNullableInt("baud");
                     var result = await client.SerialOpen(port, baud, target, cts.Token);
                     Print(result, parsed.Json);
                     return result.Ok ? 0 : 4;
@@ -212,6 +214,9 @@ Usage:
   benchpilot serial window          [--target ID] [--lines N] [--filter TEXT] [--json]
   benchpilot serial send <data>     [--target ID] [--json]
 
+`serial open` normally uses port/baud from the target resource profile. --port and
+--baud are optional expert/debug overrides.
+
 Environment:
   BENCHPILOT_ENDPOINT   Runtime endpoint (default http://127.0.0.1:5640/)
 
@@ -281,6 +286,15 @@ internal sealed class CliArguments
     {
         var value = Get(name);
         if (value is null) return defaultValue;
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : throw new FormatException($"Option --{name} must be an integer.");
+    }
+
+    public int? GetNullableInt(string name)
+    {
+        var value = Get(name);
+        if (value is null) return null;
         return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : throw new FormatException($"Option --{name} must be an integer.");
