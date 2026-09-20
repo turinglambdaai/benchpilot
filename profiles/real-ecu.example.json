@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "name": "Real ECU example",
+  "defaultTarget": "ecu",
+  "resources": {
+    "uart.ecu": {
+      "driver": "system-serial",
+      "capabilities": ["serial"],
+      "settings": {
+        "port": "COM7",
+        "baud": 115200,
+        "newLine": "\n",
+        "maxBufferedLines": 4096
+      }
+    },
+    "probe.ecu": {
+      "driver": "jlink",
+      "capabilities": ["flash"],
+      "settings": {
+        "device": "CHANGE_ME_TO_SEGGER_DEVICE_NAME",
+        "interface": "SWD",
+        "speedKhz": 4000,
+        "timeoutMs": 120000
+      }
+    }
+  },
+  "targets": {
+    "ecu": {
+      "name": "Example ECU",
+      "mcu": "CHANGE_ME",
+      "bindings": {
+        "serial": "uart.ecu",
+        "flash": "probe.ecu"
+      }
+    }
+  },
+  "safety": {
+    "requireExplicitTarget": true
+  }
+}
