@@ -4,7 +4,7 @@ BenchPilot is developed as an **agent-native ECU development runtime**, not as a
 
 The roadmap prioritizes one complete real-ECU loop over broad protocol coverage.
 
-## Foundation — now
+## Foundation — complete
 
 Goal: make the P0 demo architecture capable of growing into a real bench without rewriting the product.
 
@@ -20,21 +20,46 @@ Goal: make the P0 demo architecture capable of growing into a real bench without
 - [x] MCP converted from hardware owner to resident-Runtime proxy;
 - [x] loopback-only local IPC between shells and Runtime;
 - [x] target operation boundary enforcing validation/safety before driver calls;
+- [x] Windows/Linux build + test CI;
+- [x] resident-runtime smoke test through the real CLI/IPC path.
+
+Foundation exit criterion achieved:
+
+```text
+benchpilotd owns simulator state
+        |
+        +--> CLI  --+
+        |           +--> same target/resource state
+        +--> MCP  --+
+
+power -> flash -> wait Ready -> current check -> power off
+```
+
+The remaining runtime hardening items are carried forward and should be implemented as real hardware requires them:
+
 - [ ] structured device/runtime error taxonomy beyond the initial API error envelope;
 - [ ] resource lifecycle and deterministic disposal;
 - [ ] resource locking / leases for concurrent clients;
 - [ ] operation IDs, cancellation and timeout semantics across IPC;
 - [ ] bounded artifact/event store for observations and failure windows.
 
-Exit criterion: simulator can be driven through one resident Runtime by CLI and MCP without either shell owning device state.
+## Real bench vertical slice — next
 
-## Real bench vertical slice
+Goal: control one real ECU end to end without changing CLI/MCP semantics.
 
-Goal: control one real ECU end to end.
+Architecture prerequisite:
+
+- [ ] replace RuntimeHost's temporary simulator-only composition with a resource-driver factory registry;
+- [ ] define driver lifecycle (`open/close/health/dispose`) without leaking vendor SDK types into Core;
+
+First real drivers:
 
 - [ ] system serial backend;
 - [ ] J-Link backend for flash/reset and basic debug observations;
 - [ ] SCPI power backend;
+
+Safety / observation:
+
 - [ ] power/current safety enforcement against real instruments;
 - [ ] target identity and explicit destructive-operation guardrails;
 - [ ] failure-window artifacts around flash/boot failures.
