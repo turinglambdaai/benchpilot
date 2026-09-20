@@ -75,6 +75,11 @@ public sealed class BenchClient : IDisposable
     public Task<PowerOffResult> PowerOff(string? target = null, CancellationToken ct = default) =>
         Send<PowerOffResult>(HttpMethod.Post, WithTarget("api/v1/power/off", target), null, ct);
 
+    public Task<PowerOffResult> EmergencyPowerOff(
+        string? target = null,
+        CancellationToken ct = default) =>
+        Send<PowerOffResult>(HttpMethod.Post, WithTarget("api/v1/power/emergency-off", target), null, ct);
+
     public Task<CurrentReading> ReadCurrent(
         int windowMs,
         string? target = null,
