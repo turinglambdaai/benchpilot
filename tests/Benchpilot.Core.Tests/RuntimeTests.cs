@@ -58,6 +58,22 @@ public class RuntimeTests
     }
 
     [Fact]
+    public async Task Safety_policy_cuts_power_when_measured_current_exceeds_limit()
+    {
+        var profile = ProfileLoader.DefaultSimulator() with
+        {
+            Safety = new BenchSafetyPolicy { MaxCurrentMa = 10 },
+        };
+        var (runtime, bench) = NewRuntime(profile);
+
+        var result = await runtime.Target().PowerOn(12, 2000);
+
+        Assert.False(result.Ok);
+        Assert.Contains("exceeds bench safety limit", result.Error);
+        Assert.False(bench.IsOn);
+    }
+
+    [Fact]
     public void Explicit_target_policy_is_enforced_by_runtime()
     {
         var profile = ProfileLoader.DefaultSimulator() with
