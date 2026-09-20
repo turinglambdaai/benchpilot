@@ -182,13 +182,19 @@ public sealed class ScpiPowerSupply : IPowerSupply, IDisposable
         }
         catch (OperationCanceledException)
         {
+            if (_isOn)
+                await TrySafetyOffCore();
             throw;
         }
         catch (Exception ex) when (IsTransportOrProtocolError(ex))
         {
+            var shutoffError = _isOn ? await TrySafetyOffCore() : null;
             CloseConnectionCore();
             _isOn = false;
-            return new PowerOnResult(false, voltage, 0, false, ex.Message);
+            var suffix = shutoffError is null
+                ? string.Empty
+                : $" Safety shutoff could not be confirmed: {shutoffError}";
+            return new PowerOnResult(false, voltage, 0, false, ex.Message + suffix);
         }
         finally
         {
@@ -322,6 +328,12 @@ public sealed class ScpiPowerSupply : IPowerSupply, IDisposable
         {
             await client.ConnectAsync(_settings.Host, _settings.Port, timeout.Token);
         }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            client.Dispose();
+            throw new TimeoutException(
+                $"SCPI connection to {_settings.Host}:{_settings.Port} timed out after {_settings.ConnectTimeoutMs} ms.", ex);
+        }
         catch
         {
             client.Dispose();
@@ -343,8 +355,16 @@ public sealed class ScpiPowerSupply : IPowerSupply, IDisposable
         var writer = _writer ?? throw new IOException("SCPI connection is not open.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(_settings.IoTimeoutMs);
-        await writer.WriteLineAsync(command.AsMemory(), timeout.Token);
-        await writer.FlushAsync(timeout.Token);
+        try
+        {
+            await writer.WriteLineAsync(command.AsMemory(), timeout.Token);
+            await writer.FlushAsync(timeout.Token);
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"SCPI write timed out after {_settings.IoTimeoutMs} ms while sending '{command}'.", ex);
+        }
     }
 
     private async Task<string> QueryCore(string command, CancellationToken ct)
@@ -353,8 +373,16 @@ public sealed class ScpiPowerSupply : IPowerSupply, IDisposable
         var reader = _reader ?? throw new IOException("SCPI connection is not open.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(_settings.IoTimeoutMs);
-        var line = await reader.ReadLineAsync(timeout.Token);
-        return line ?? throw new IOException("SCPI instrument closed the connection while waiting for a response.");
+        try
+        {
+            var line = await reader.ReadLineAsync(timeout.Token);
+            return line ?? throw new IOException("SCPI instrument closed the connection while waiting for a response.");
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"SCPI response timed out after {_settings.IoTimeoutMs} ms for '{command}'.", ex);
+        }
     }
 
     private async Task<double> QueryDoubleCore(string command, CancellationToken ct)
@@ -378,6 +406,20 @@ public sealed class ScpiPowerSupply : IPowerSupply, IDisposable
         if (command.IndexOfAny(['\r', '\n']) >= 0)
             throw new InvalidDataException("Formatted SCPI command must remain single-line.");
         return command;
+    }
+
+    private async Task<string?> TrySafetyOffCore()
+    {
+        try
+        {
+            await SendCore(Format(_settings.Commands.OutputOff, null, _settings.CurrentLimitA), CancellationToken.None);
+            _isOn = false;
+            return null;
+        }
+        catch (Exception ex) when (IsTransportOrProtocolError(ex))
+        {
+            return ex.Message;
+        }
     }
 
     private static bool IsTransportOrProtocolError(Exception ex) =>
