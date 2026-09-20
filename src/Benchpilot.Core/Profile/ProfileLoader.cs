@@ -194,6 +194,20 @@ public static class ProfileLoader
                 $"Default target '{profile.DefaultTarget}' does not exist in 'targets'.");
         }
 
+        if (profile.Safety.MaxVoltage is { } maxVoltage &&
+            (!double.IsFinite(maxVoltage) || maxVoltage <= 0))
+        {
+            throw new InvalidOperationException(
+                "Safety maxVoltage must be a finite value greater than zero when configured.");
+        }
+
+        if (profile.Safety.MaxCurrentMa is { } maxCurrentMa &&
+            (!double.IsFinite(maxCurrentMa) || maxCurrentMa <= 0))
+        {
+            throw new InvalidOperationException(
+                "Safety maxCurrentMa must be a finite value greater than zero when configured.");
+        }
+
         foreach (var (resourceId, resource) in profile.Resources)
         {
             if (string.IsNullOrWhiteSpace(resourceId))
