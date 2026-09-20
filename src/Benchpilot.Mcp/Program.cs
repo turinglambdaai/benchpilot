@@ -23,26 +23,36 @@ builder.Services.AddMcpServer()
     .WithTools<FlashTools>()
     .WithTools<SerialTools>();
 
-// Driver selection (PRD §2.1): the kernel and tools only know the channel
-// interfaces, so swapping the bench backend is a registration change here.
-// The DEMO ships the simulator; a future hardware driver plugs into the same
-// three interfaces without touching anything above.
 builder.Services.AddSingleton(profile);
-switch (profile.Driver)
+
+// P0/P1 bridge: the profile is already multi-resource/multi-target capable,
+// while the only shipped backend is still one composite simulator instance.
+// Real hardware drivers will register each resource independently in the
+// resident Runtime instead of adding another monolithic "hardware" driver.
+var power = ProfileLoader.ResolveResource(profile, "power");
+var serial = ProfileLoader.ResolveResource(profile, "serial");
+var flash = ProfileLoader.ResolveResource(profile, "flash");
+
+var simulatorBindings = new[] { power, serial, flash };
+var allSimulator = simulatorBindings.All(x =>
+    string.Equals(x.Resource.Driver, "simulator", StringComparison.OrdinalIgnoreCase));
+var oneCompositeResource = simulatorBindings
+    .Select(x => x.ResourceId)
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .Count() == 1;
+
+if (!allSimulator || !oneCompositeResource)
 {
-    case "simulator":
-        // One shared virtual bench backs all three channels so power / serial /
-        // flash share state and behave like a single board.
-        builder.Services.AddSingleton<SimulatedBench>();
-        builder.Services.AddSingleton<IPowerSupply>(sp => sp.GetRequiredService<SimulatedBench>());
-        builder.Services.AddSingleton<ISerialChannel>(sp => sp.GetRequiredService<SimulatedBench>());
-        builder.Services.AddSingleton<IFlashTarget>(sp => sp.GetRequiredService<SimulatedBench>());
-        break;
-    default:
-        throw new InvalidOperationException(
-            $"Unknown driver '{profile.Driver}'. The DEMO supports 'simulator'; " +
-            "a 'hardware' driver lands when the SCPI/probe backend is implemented.");
+    throw new InvalidOperationException(
+        "This milestone ships only the composite simulator backend. " +
+        "The profile model already supports independent resources; real SCPI, serial, " +
+        "probe and CAN drivers will be hosted by Benchpilot.Runtime in the next milestone.");
 }
+
+builder.Services.AddSingleton<SimulatedBench>();
+builder.Services.AddSingleton<IPowerSupply>(sp => sp.GetRequiredService<SimulatedBench>());
+builder.Services.AddSingleton<ISerialChannel>(sp => sp.GetRequiredService<SimulatedBench>());
+builder.Services.AddSingleton<IFlashTarget>(sp => sp.GetRequiredService<SimulatedBench>());
 builder.Services.AddSingleton<BenchKernel>();
 
 await builder.Build().RunAsync();
