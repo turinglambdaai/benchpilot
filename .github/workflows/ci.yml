@@ -34,4 +34,4 @@ jobs:
       - name: Build
         run: dotnet build --no-restore -c Release
       - name: Test
-        run: dotnet test --no-build -c Release --logger normal
+        run: dotnet test --no-build -c Release --logger "console;verbosity=normal"
