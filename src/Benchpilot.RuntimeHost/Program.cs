@@ -1,5 +1,6 @@
 using Benchpilot.Core;
 using Benchpilot.Drivers.JLink;
+using Benchpilot.Drivers.ScpiPower;
 using Benchpilot.Drivers.Serial;
 using Benchpilot.Protocol;
 using Benchpilot.Runtime;
@@ -29,6 +30,7 @@ var drivers = new BenchDriverRegistry(new IBenchResourceFactory[]
     new SimulatorResourceFactory(),
     new SystemSerialResourceFactory(),
     new JLinkResourceFactory(),
+    new ScpiPowerResourceFactory(),
 });
 
 var builder = WebApplication.CreateBuilder(args);
