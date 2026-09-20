@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Benchpilot.Core\Benchpilot.Core.csproj" />
+    <ProjectReference Include="..\Benchpilot.Runtime\Benchpilot.Runtime.csproj" />
     <ProjectReference Include="..\Benchpilot.Simulator\Benchpilot.Simulator.csproj" />
   </ItemGroup>
 
