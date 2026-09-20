@@ -13,13 +13,20 @@ Goal: make the P0 demo architecture capable of growing into a real bench without
 - [x] resource + target bench profile model;
 - [x] compatibility loader for P0 single-driver profiles;
 - [x] initial bench-level safety policy schema;
-- [ ] resident `Benchpilot.Runtime` process;
-- [ ] stable operation/error envelope shared by CLI/MCP/GUI;
-- [ ] resource lifecycle, locking, cancellation and timeout semantics;
-- [ ] CLI with deterministic JSON output and documented exit codes;
-- [ ] local IPC/API between shells and Runtime.
+- [x] resident `benchpilotd` process owning live resource state;
+- [x] versioned local `/api/v1` transport contracts;
+- [x] shared `Benchpilot.Client` used by shells;
+- [x] CLI with deterministic JSON output and documented exit codes;
+- [x] MCP converted from hardware owner to resident-Runtime proxy;
+- [x] loopback-only local IPC between shells and Runtime;
+- [x] target operation boundary enforcing validation/safety before driver calls;
+- [ ] structured device/runtime error taxonomy beyond the initial API error envelope;
+- [ ] resource lifecycle and deterministic disposal;
+- [ ] resource locking / leases for concurrent clients;
+- [ ] operation IDs, cancellation and timeout semantics across IPC;
+- [ ] bounded artifact/event store for observations and failure windows.
 
-Exit criterion: simulator can be driven through Runtime by CLI and MCP without either shell owning device state.
+Exit criterion: simulator can be driven through one resident Runtime by CLI and MCP without either shell owning device state.
 
 ## Real bench vertical slice
 
@@ -28,7 +35,7 @@ Goal: control one real ECU end to end.
 - [ ] system serial backend;
 - [ ] J-Link backend for flash/reset and basic debug observations;
 - [ ] SCPI power backend;
-- [ ] power/current safety enforcement;
+- [ ] power/current safety enforcement against real instruments;
 - [ ] target identity and explicit destructive-operation guardrails;
 - [ ] failure-window artifacts around flash/boot failures.
 
@@ -108,6 +115,20 @@ First useful screens:
 - [ ] Run/Agent timeline.
 
 GUI technology is deliberately decoupled. Avalonia is the conservative default; a Racket/Glaze frontend remains viable if it proves a concrete productivity or UX advantage over the stable Runtime API.
+
+## Remote / team benches
+
+Do not implement remote control by simply binding the local HTTP API to `0.0.0.0`.
+
+Required before remote operation:
+
+- [ ] authenticated transport;
+- [ ] authorization / role policy;
+- [ ] TLS or equivalent secure channel;
+- [ ] resource leases and ownership;
+- [ ] audit trail;
+- [ ] bench scheduling / reservation;
+- [ ] explicit policy for destructive operations.
 
 ## Explicitly deferred
 
