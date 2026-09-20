@@ -33,7 +33,9 @@ public record PowerOnRequest(double Voltage = 12, int SettleMs = 2000);
 public record CurrentReadRequest(int WindowMs = 500);
 public record CurrentCheckRequest(double? LtMa = null, double? GtMa = null);
 public record FlashRequest(string Firmware);
-public record SerialOpenRequest(string Port = "SIM0", int Baud = 115200);
+// Null values mean "use the resource profile defaults". Device-centric values
+// are expert overrides, not required Agent inputs.
+public record SerialOpenRequest(string? Port = null, int? Baud = null);
 public record SerialWaitRequest(string Pattern, int TimeoutMs = 10000);
 public record SerialWindowRequest(int Lines = 50, string? Filter = null);
 public record SerialSendRequest(string Data);

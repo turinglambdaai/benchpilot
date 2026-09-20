@@ -7,22 +7,16 @@ namespace Benchpilot.Simulator;
 // A self-contained virtual bench for the DEMO. One class implements all three
 // channels so power / serial / flash share state and behave like a real board:
 // flashing while powered reboots the simulated firmware, which then streams its
-// boot log over the serial console. Swap this out for a real SCPI supply +
-// System.IO.Ports console + probe backend by registering different
-// IPowerSupply / ISerialChannel / IFlashTarget — the kernel and MCP tools stay
-// untouched (PRD §2.1 "the kernel is valuable, the shells are replaceable").
+// boot log over the serial console.
 public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget
 {
     private readonly object _gate = new();
     private bool _powered;
-    private long _powerOnTicks;          // Stopwatch ticks when last powered on
+    private long _powerOnTicks;
     private string _firmware = "factory-bootloader";
 
-    // Serial console buffer: timestamped lines the simulated firmware emits.
     private readonly ConcurrentQueue<ConsoleLine> _console = new();
     private readonly Random _rng = new(0xC0FFEE);
-
-    // --- shared model ---
 
     private double SecondsSincePowerOn()
     {
@@ -30,20 +24,15 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget
         return (Stopwatch.GetTimestamp() - _powerOnTicks) / (double)Stopwatch.Frequency;
     }
 
-    // Current-draw model (mA) vs. time since power-on: inrush spike, ramp down,
-    // steady idle. A flashed app idles slightly higher than the bare bootloader,
-    // which is what a real ECU looks like.
     private double CurrentMaNow()
     {
         if (!_powered) return 0;
         var t = SecondsSincePowerOn();
         var steady = _firmware == "factory-bootloader" ? 22.0 : 45.0;
-        if (t < 0.4) return 600 + _rng.NextDouble() * 300;        // inrush 600-900mA
-        if (t < 1.5) return 200 - (t - 0.4) * 90 + _rng.NextDouble() * 20; // ramp down
-        return steady + _rng.NextDouble() * 5;                    // steady idle
+        if (t < 0.4) return 600 + _rng.NextDouble() * 300;
+        if (t < 1.5) return 200 - (t - 0.4) * 90 + _rng.NextDouble() * 20;
+        return steady + _rng.NextDouble() * 5;
     }
-
-    // --- IPowerSupply ---
 
     public bool IsOn => _powered;
 
@@ -62,8 +51,6 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget
         if (alreadyOn)
             return Task.FromResult(new PowerOnResult(true, voltage, CurrentMaNow(), true));
 
-        // Idempotent (PRD §6.8): already-on is a no-op. Otherwise simulate the
-        // settle window, then boot whatever firmware is present.
         var wait = Math.Clamp(settleMs, 0, 5000);
         return Task.Run(async () =>
         {
@@ -110,18 +97,14 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget
         return new CurrentCheck(true, v, passed);
     }
 
-    // --- IFlashTarget ---
-
     public async Task<FlashResult> Flash(string firmwarePath, CancellationToken ct = default)
     {
         if (!_powered)
             return new FlashResult(false, 0, 0, "Power is off; cannot flash.");
-        // Simulate programming a ~256KB image at a believable rate.
         var bytes = 256 * 1024 + _rng.Next(0, 4096);
         var durationMs = 400 + _rng.Next(0, 250);
         try { await Task.Delay(durationMs, ct); } catch (OperationCanceledException) { }
         _firmware = string.IsNullOrWhiteSpace(firmwarePath) ? "app.elf" : Path.GetFileName(firmwarePath);
-        // Flashing reboots into the new firmware, which streams its boot log.
         BootFirmware();
         return new FlashResult(true, bytes, durationMs);
     }
@@ -134,15 +117,13 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget
         return Task.FromResult(new ResetResult(true));
     }
 
-    // --- ISerialChannel ---
-
     public bool IsOpen => !_console.IsEmpty;
 
-    public Task<SerialOpenResult> Open(string port, int baud, CancellationToken ct = default)
+    public Task<SerialOpenResult> Open(string? port = null, int? baud = null, CancellationToken ct = default)
     {
-        // The console mirrors the firmware boot log produced at power-on / flash
-        // time. "Opening" marks intent; the buffer may already hold boot lines.
-        return Task.FromResult(new SerialOpenResult(true, port, baud));
+        var resolvedPort = string.IsNullOrWhiteSpace(port) ? "SIM0" : port;
+        var resolvedBaud = baud ?? 115200;
+        return Task.FromResult(new SerialOpenResult(true, resolvedPort, resolvedBaud));
     }
 
     public async Task<SerialWaitResult> WaitFor(string pattern, int timeoutMs, CancellationToken ct = default)
@@ -169,18 +150,9 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget
         return Task.FromResult(new SerialWindowResult(true, result));
     }
 
-    public Task<SerialSendResult> Send(string data, CancellationToken ct = default)
-    {
-        // A real console would echo or the firmware would react; the simulator
-        // acknowledges the write silently.
-        return Task.FromResult(new SerialSendResult(true));
-    }
+    public Task<SerialSendResult> Send(string data, CancellationToken ct = default) =>
+        Task.FromResult(new SerialSendResult(true));
 
-    // --- simulated firmware boot sequence ---
-
-    // Emits the boot log asynchronously so WaitFor can observe lines arriving
-    // over time, exactly like a real MCU streaming its console. Clears the
-    // buffer first so each boot is a fresh console session.
     private void BootFirmware()
     {
         _console.Clear();

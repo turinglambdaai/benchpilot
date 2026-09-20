@@ -96,8 +96,8 @@ public sealed class BenchClient : IDisposable
         Send<ResetResult>(HttpMethod.Post, WithTarget("api/v1/flash/reset", target), null, ct);
 
     public Task<SerialOpenResult> SerialOpen(
-        string port,
-        int baud,
+        string? port = null,
+        int? baud = null,
         string? target = null,
         CancellationToken ct = default) =>
         Send<SerialOpenResult>(HttpMethod.Post, WithTarget("api/v1/serial/open", target),

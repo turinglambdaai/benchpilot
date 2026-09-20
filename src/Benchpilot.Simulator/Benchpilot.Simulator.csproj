@@ -1,7 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\Benchpilot.Core\Benchpilot.Core.csproj" />
+    <ProjectReference Include="..\Benchpilot.Runtime\Benchpilot.Runtime.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

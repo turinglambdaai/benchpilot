@@ -35,33 +35,48 @@ benchpilotd owns simulator state
 power -> flash -> wait Ready -> current check -> power off
 ```
 
-The remaining runtime hardening items are carried forward and should be implemented as real hardware requires them:
+Runtime hardening continues as real devices land:
 
+- [x] resource lifetime and deterministic disposal;
 - [ ] structured device/runtime error taxonomy beyond the initial API error envelope;
-- [ ] resource lifecycle and deterministic disposal;
 - [ ] resource locking / leases for concurrent clients;
 - [ ] operation IDs, cancellation and timeout semantics across IPC;
 - [ ] bounded artifact/event store for observations and failure windows.
 
-## Real bench vertical slice — next
+## Real bench vertical slice — in progress
 
 Goal: control one real ECU end to end without changing CLI/MCP semantics.
 
 Architecture prerequisite:
 
-- [ ] replace RuntimeHost's temporary simulator-only composition with a resource-driver factory registry;
-- [ ] define driver lifecycle (`open/close/health/dispose`) without leaking vendor SDK types into Core;
+- [x] replace RuntimeHost's simulator-only composition with a resource-driver factory registry;
+- [x] define driver lifetime/disposal without leaking vendor SDK types into Core;
 
 First real drivers:
 
-- [ ] system serial backend;
-- [ ] J-Link backend for flash/reset and basic debug observations;
+- [x] `system-serial` backend implementation;
+- [x] J-Link Commander backend for flash/reset implementation;
+- [ ] physical serial + J-Link validation against a real ECU;
 - [ ] SCPI power backend;
+
+Serial design:
+
+- port/baud live in the resource profile by default;
+- CLI/MCP port/baud values are optional expert overrides;
+- one resident OS serial handle is owned by `benchpilotd`;
+- raw input is converted into a bounded line buffer for `wait`/`window` observations.
+
+J-Link design:
+
+- BenchPilot invokes the user's installed SEGGER J-Link Commander and does not redistribute SEGGER binaries;
+- device/interface/speed/probe serial/executable are profile settings;
+- command execution is bounded by timeout/cancellation and captures bounded diagnostics;
+- `.bin` images require an explicit `binAddress`; BenchPilot does not guess flash addresses.
 
 Safety / observation:
 
 - [ ] power/current safety enforcement against real instruments;
-- [ ] target identity and explicit destructive-operation guardrails;
+- [ ] target identity and explicit destructive-operation guardrails beyond explicit target selection;
 - [ ] failure-window artifacts around flash/boot failures.
 
 Exit criterion:
