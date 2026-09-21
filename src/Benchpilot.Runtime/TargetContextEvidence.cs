@@ -105,14 +105,14 @@ internal static class TargetContextEvidence
         ArgumentException.ThrowIfNullOrWhiteSpace(targetId);
         if (maxItems <= 0) return Array.Empty<BenchEvidenceItem>();
 
-        return Stores.GetOrCreateValue(runtime).Snapshot(targetId, Math.Min(maxItems, DefaultSnapshotCount));
+        return GetStore(runtime).Snapshot(targetId, Math.Min(maxItems, DefaultSnapshotCount));
     }
 
     /// <summary>
     /// Marks a flash/reset call so OperationEvidenceExtractor can append the
-    /// same target-local context to device failures, cancellations and thrown
-    /// infrastructure errors without widening RunMutation's generic contract.
-    /// AsyncLocal is intentionally scoped to the current async call chain only.
+    /// same target-local context to device failures and thrown infrastructure
+    /// errors without widening RunMutation's generic contract. AsyncLocal is
+    /// intentionally scoped to the current async call chain only.
     /// </summary>
     public static IDisposable BeginFailureScope(
         BenchRuntime runtime,
@@ -147,8 +147,11 @@ internal static class TargetContextEvidence
     {
         ArgumentNullException.ThrowIfNull(runtime);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetId);
-        Stores.GetOrCreateValue(runtime).Put(targetId, item);
+        GetStore(runtime).Put(targetId, item);
     }
+
+    private static Store GetStore(BenchRuntime runtime) =>
+        Stores.GetValue(runtime, static _ => new Store());
 
     private static string Bool(bool value) => value ? "true" : "false";
     private static string Number(double value) =>
