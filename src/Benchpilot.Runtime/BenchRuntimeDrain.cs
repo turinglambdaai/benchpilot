@@ -10,12 +10,12 @@ public sealed record BenchRuntimeDrainResult(
 public static class BenchRuntimeDrain
 {
     /// <summary>
-    /// Requests cooperative cancellation of all Runtime-owned mutations and
+    /// Requests cooperative cancellation of Runtime-owned mutations and
     /// observations, then waits up to <paramref name="timeout"/> for drivers to
-    /// unwind and release their Runtime registrations. This method does not
-    /// dispose hardware resources; the host should dispose only after a
-    /// successful drain so handles are never pulled out from under live driver
-    /// calls.
+    /// unwind and release their Runtime registrations. New active work observed
+    /// while the host is entering shutdown is cancelled too. This method does
+    /// not dispose hardware resources; the host should dispose only after a
+    /// successful drain so handles are never pulled out from under live calls.
     /// </summary>
     public static async Task<BenchRuntimeDrainResult> DrainAsync(
         this BenchRuntime runtime,
@@ -26,34 +26,37 @@ public static class BenchRuntimeDrain
         if (timeout < TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(timeout), "Drain timeout cannot be negative.");
 
-        var initialOperations = runtime.ActiveOperations;
-        var initialObservations = runtime.ActiveObservations;
-        var cancelledOperations = 0;
-        var cancelledObservations = 0;
-
-        foreach (var operation in initialOperations)
-        {
-            if (runtime.CancelOperation(operation.Id))
-                cancelledOperations++;
-        }
-
-        foreach (var observation in initialObservations)
-        {
-            if (runtime.CancelObservation(observation.Id))
-                cancelledObservations++;
-        }
-
+        var cancelledOperationIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var cancelledObservationIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var deadline = DateTimeOffset.UtcNow + timeout;
+
         while (true)
         {
             var operations = runtime.ActiveOperations;
             var observations = runtime.ActiveObservations;
+
+            foreach (var operation in operations)
+            {
+                if (cancelledOperationIds.Add(operation.Id))
+                    runtime.CancelOperation(operation.Id);
+            }
+
+            foreach (var observation in observations)
+            {
+                if (cancelledObservationIds.Add(observation.Id))
+                    runtime.CancelObservation(observation.Id);
+            }
+
+            // Re-read after issuing cancellation because cooperative drivers may
+            // unregister synchronously/very quickly.
+            operations = runtime.ActiveOperations;
+            observations = runtime.ActiveObservations;
             if (operations.Count == 0 && observations.Count == 0)
             {
                 return new BenchRuntimeDrainResult(
                     true,
-                    cancelledOperations,
-                    cancelledObservations,
+                    cancelledOperationIds.Count,
+                    cancelledObservationIds.Count,
                     Array.Empty<string>(),
                     Array.Empty<string>());
             }
@@ -62,8 +65,8 @@ public static class BenchRuntimeDrain
             {
                 return new BenchRuntimeDrainResult(
                     false,
-                    cancelledOperations,
-                    cancelledObservations,
+                    cancelledOperationIds.Count,
+                    cancelledObservationIds.Count,
                     operations.Select(x => x.Id).ToArray(),
                     observations.Select(x => x.Id).ToArray());
             }
@@ -85,8 +88,8 @@ public static class BenchRuntimeDrain
                 var observationsAfterCancel = runtime.ActiveObservations;
                 return new BenchRuntimeDrainResult(
                     operationsAfterCancel.Count == 0 && observationsAfterCancel.Count == 0,
-                    cancelledOperations,
-                    cancelledObservations,
+                    cancelledOperationIds.Count,
+                    cancelledObservationIds.Count,
                     operationsAfterCancel.Select(x => x.Id).ToArray(),
                     observationsAfterCancel.Select(x => x.Id).ToArray());
             }
