@@ -2,7 +2,7 @@
 
 BenchPilot is developed as an **agent-native ECU development runtime**, not as a feature-for-feature CANoe replacement.
 
-The roadmap prioritizes one complete real-ECU loop over broad protocol coverage. The current gate is **physical bench validation and cross-operation failure evidence**, not adding more protocols.
+The roadmap prioritizes one complete real-ECU loop over broad protocol coverage. The current gate is **physical bench validation and production-grade evidence/artifact handling**, not adding more protocols.
 
 ## Foundation — complete
 
@@ -50,6 +50,7 @@ These are now Runtime properties shared by CLI, MCP and future Studio clients, r
 - [x] bounded mutation evidence keyed by operation ID;
 - [x] non-mutating observation IDs/history/cancellation/evidence for serial operations;
 - [x] bounded serial failure windows sourced from the driver's local line buffer;
+- [x] bounded cross-operation target context (power/current) correlated into flash/reset and boot-wait failures;
 - [x] explicit normal shutdown versus emergency shutdown semantics;
 - [x] emergency power-off bypasses mutation gates, is non-cancellable once accepted, and is audited;
 - [x] destructive flash/reset confirmation policy;
@@ -61,7 +62,6 @@ Still intentionally incomplete:
 
 - [ ] richer device/runtime error taxonomy for vendor-specific failures without leaking vendor SDK types into Core;
 - [ ] one Runtime-level deadline/timeout model across all long operations (drivers already enforce bounded device timeouts where required);
-- [ ] cross-operation evidence correlation, especially power/current context around flash/boot failures;
 - [ ] persistent evidence/artifact storage beyond the current bounded in-memory Runtime stores;
 - [ ] remote/team leases — local mutation locks are **not** a substitute for authenticated remote ownership.
 
@@ -128,9 +128,9 @@ SCPI power design:
 - device timeout and user/operation cancellation are distinguished;
 - explicit emergency shutdown is the only shell-facing path allowed to bypass target/resource locks.
 
-### Failure evidence — foundation complete, correlation next
+### Failure evidence — bounded semantic correlation complete
 
-The Runtime now makes individual failures explainable to an Agent without dumping unbounded raw logs.
+The Runtime makes common bench failures explainable to an Agent without dumping unbounded raw logs or adding background telemetry.
 
 - [x] bounded evidence model keyed by mutation operation ID;
 - [x] final bounded J-Link stdout/stderr context flows through failed flash/reset evidence;
@@ -138,8 +138,10 @@ The Runtime now makes individual failures explainable to an Agent without dumpin
 - [x] CLI/MCP query for mutation evidence;
 - [x] observation IDs/history/evidence and CLI/MCP query for UART observations;
 - [x] strict size/count limits so evidence remains LLM-context friendly;
-- [ ] correlate relevant voltage/current observations with a flash/boot failure window;
-- [ ] define artifact references for larger evidence that must stay out of LLM context.
+- [x] correlate recent power-on/off and current measurement/assertion context with flash/reset and boot-wait failures;
+- [x] per-target context ring is bounded, newest-first, age-limited, and performs no extra hardware I/O;
+- [ ] define artifact references for larger evidence that must stay out of LLM context;
+- [ ] persist selected evidence/artifacts across Runtime restarts when team/CI workflows require it.
 
 Real-bench exit criterion:
 
