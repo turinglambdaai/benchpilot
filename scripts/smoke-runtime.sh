@@ -50,6 +50,9 @@ cli serial open --json
 cli flash write build/app.elf --json
 # Completed mutations must disappear from Runtime-owned operation state.
 cli operations --json
+# Query compact evidence through the same CLI -> Client -> HTTP Runtime path.
+latest_operation_id="$(cli history --limit 1 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["operations"][0]["id"])')"
+cli evidence "$latest_operation_id" --json
 cli serial wait Ready --timeout-ms 5000 --json
 cli power check --lt-ma 100 --json
 cli power off --json
