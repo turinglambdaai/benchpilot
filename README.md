@@ -291,4 +291,4 @@ A future visual workflow editor and textual DSL will compile to the same typed e
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+GNU Affero General Public License v3.0. See [LICENSE](LICENSE).
