@@ -34,7 +34,14 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
         return steady + _rng.NextDouble() * 5;
     }
 
-    public bool IsOn => _powered;
+    public bool IsOn
+    {
+        get
+        {
+            lock (_gate)
+                return _powered;
+        }
+    }
 
     public Task<PowerOnResult> PowerOn(double voltage, int settleMs, CancellationToken ct = default)
     {
@@ -52,25 +59,35 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
             return Task.FromResult(new PowerOnResult(true, voltage, CurrentMaNow(), true));
 
         var wait = Math.Clamp(settleMs, 0, 5000);
-        return Task.Run(async () =>
+        return SettlePowerOnAsync(voltage, wait, ct);
+    }
+
+    private async Task<PowerOnResult> SettlePowerOnAsync(
+        double voltage,
+        int waitMs,
+        CancellationToken ct)
+    {
+        // Do not wrap this in Task.Run(..., ct). If cancellation happens before
+        // the thread-pool delegate starts, Task.Run can cancel without executing
+        // the delegate at all, which would skip the rollback after `_powered`
+        // has already been set true. Enter the async flow synchronously so every
+        // cancellation after state mutation is guaranteed to run this catch.
+        try
         {
-            try
+            await Task.Delay(waitMs, ct);
+            ct.ThrowIfCancellationRequested();
+            BootFirmware();
+            return new PowerOnResult(true, voltage, CurrentMaNow(), true);
+        }
+        catch (OperationCanceledException)
+        {
+            lock (_gate)
             {
-                await Task.Delay(wait, ct);
-                ct.ThrowIfCancellationRequested();
-                BootFirmware();
-                return new PowerOnResult(true, voltage, CurrentMaNow(), true);
+                _powered = false;
+                _console.Clear();
             }
-            catch (OperationCanceledException)
-            {
-                lock (_gate)
-                {
-                    _powered = false;
-                    _console.Clear();
-                }
-                throw;
-            }
-        }, ct);
+            throw;
+        }
     }
 
     public Task<PowerOffResult> PowerOff(CancellationToken ct = default)
@@ -86,7 +103,7 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
 
     public async Task<CurrentReading> ReadCurrent(int windowMs, CancellationToken ct = default)
     {
-        if (!_powered)
+        if (!IsOn)
             return new CurrentReading(false, 0, 0, Array.Empty<double>(), "Power is off.");
         var samples = new List<double>();
         var sw = Stopwatch.StartNew();
@@ -101,7 +118,7 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
 
     public async Task<CurrentCheck> CheckCurrent(double? ltMa = null, double? gtMa = null, CancellationToken ct = default)
     {
-        if (!_powered)
+        if (!IsOn)
             return new CurrentCheck(false, 0, false, "Power is off.");
         if (ltMa is null && gtMa is null)
             return new CurrentCheck(false, 0, false, "Provide lt or gt threshold (mA).");
@@ -113,7 +130,7 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
 
     public async Task<FlashResult> Flash(string firmwarePath, CancellationToken ct = default)
     {
-        if (!_powered)
+        if (!IsOn)
             return new FlashResult(false, 0, 0, "Power is off; cannot flash.");
         var bytes = 256 * 1024 + _rng.Next(0, 4096);
         var durationMs = 400 + _rng.Next(0, 250);
@@ -127,7 +144,7 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
     public Task<ResetResult> Reset(CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        if (!_powered)
+        if (!IsOn)
             return Task.FromResult(new ResetResult(false, "Power is off; cannot reset."));
         BootFirmware();
         return Task.FromResult(new ResetResult(true));
@@ -145,7 +162,7 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
 
     public async Task<SerialWaitResult> WaitFor(string pattern, int timeoutMs, CancellationToken ct = default)
     {
-        if (!_powered)
+        if (!IsOn)
             return new SerialWaitResult(false, false, null, 0, "Power is off.");
         var sw = Stopwatch.StartNew();
         while (sw.ElapsedMilliseconds < timeoutMs)
@@ -180,7 +197,7 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
         IReadOnlyDictionary<string, string> details = new Dictionary<string, string>
         {
             ["kind"] = "simulator",
-            ["powered"] = IsOn.ToString(),
+            ["powered"] = IsOn.ToString(CultureInfo.InvariantCulture),
             ["firmware"] = _firmware,
         };
         return Task.FromResult(new ResourceHealthResult(
@@ -192,27 +209,17 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
     private void BootFirmware()
     {
         _console.Clear();
-        var boot = DateTime.UtcNow;
-        var fw = _firmware;
-        _ = Task.Run(async () =>
-        {
-            await EmitAsync(boot, 0,    $"[reset] {fw} starting...");
-            await EmitAsync(boot, 180,  "Clock: 160MHz, Flash: OK");
-            await EmitAsync(boot, 260,  "Initializing peripherals...");
-            await EmitAsync(boot, 200,  "CAN1: up @ 500kbps");
-            await EmitAsync(boot, 160,  "GPIO: configured (8 pins)");
-            await EmitAsync(boot, 180,  "Watchdog: enabled");
-            await EmitAsync(boot, 220,  "System Ready");
-        });
+        EnqueueBootLine(0, $"[reset] {_firmware} starting...");
+        EnqueueBootLine(180, "Clock: 160MHz, Flash: OK");
+        EnqueueBootLine(440, "Initializing peripherals...");
+        EnqueueBootLine(640, "CAN1: up @ 500kbps");
+        EnqueueBootLine(800, "GPIO: configured (8 pins)");
+        EnqueueBootLine(981, "Watchdog: enabled");
+        EnqueueBootLine(1200, "System Ready");
     }
 
-    private async Task EmitAsync(DateTime boot, int delayMs, string text)
-    {
-        try { await Task.Delay(delayMs); } catch (OperationCanceledException) { return; }
-        var ms = (int)(DateTime.UtcNow - boot).TotalMilliseconds;
-        _console.Enqueue(new ConsoleLine($"[{ms,4}ms] {text}"));
-        while (_console.Count > 256 && _console.TryDequeue(out _)) { }
-    }
+    private void EnqueueBootLine(int ms, string text) =>
+        _console.Enqueue(new ConsoleLine(ms, $"[{ms,4}ms] {text}"));
 
-    private sealed record ConsoleLine(string Text);
+    private sealed record ConsoleLine(int TimestampMs, string Text);
 }
