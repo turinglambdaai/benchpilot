@@ -287,7 +287,7 @@ public class RuntimeTests
     }
 
     [Fact]
-    public async Task Emergency_power_off_remains_available_during_an_active_mutation()
+    public async Task Emergency_power_off_remains_available_during_an_active_mutation_and_is_audited()
     {
         var (runtime, bench) = NewRuntime();
         var target = runtime.Target();
@@ -298,8 +298,36 @@ public class RuntimeTests
 
         Assert.True(off.Ok);
         Assert.False(bench.IsOn);
+
+        var emergency = runtime.RecentOperations()
+            .First(x => x.Kind == "power.emergency-off");
+        Assert.True(Guid.TryParseExact(emergency.Id, "N", out _));
+        Assert.Equal("demo", emergency.TargetId);
+        Assert.Equal(["sim.demo"], emergency.ResourceIds);
+        Assert.Equal("completed", emergency.State);
+
         await flash;
         Assert.False(bench.IsOn);
+    }
+
+    [Fact]
+    public async Task Accepted_emergency_power_off_ignores_caller_cancellation()
+    {
+        var (runtime, bench) = NewRuntime();
+        var target = runtime.Target();
+        Assert.True((await target.PowerOn(12, 0)).Ok);
+        Assert.True(bench.IsOn);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var off = await target.EmergencyPowerOff(cts.Token);
+
+        Assert.True(off.Ok);
+        Assert.False(bench.IsOn);
+        var emergency = runtime.RecentOperations(1).Single();
+        Assert.Equal("power.emergency-off", emergency.Kind);
+        Assert.Equal("completed", emergency.State);
     }
 
     [Fact]
