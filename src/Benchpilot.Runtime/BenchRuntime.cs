@@ -158,13 +158,15 @@ public sealed class BenchRuntime : IDisposable
         string operation,
         IReadOnlyCollection<string> resourceIds,
         Func<CancellationToken, Task<T>> action,
-        CancellationToken requestCancellation)
+        CancellationToken requestCancellation,
+        int? deadlineMs = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetId);
         ArgumentException.ThrowIfNullOrWhiteSpace(operation);
         ArgumentNullException.ThrowIfNull(resourceIds);
         ArgumentNullException.ThrowIfNull(action);
+        ValidateDeadline(deadlineMs);
         requestCancellation.ThrowIfCancellationRequested();
 
         var normalizedResources = resourceIds
@@ -219,7 +221,8 @@ public sealed class BenchRuntime : IDisposable
                 operation,
                 normalizedResources,
                 DateTimeOffset.UtcNow,
-                requestCancellation);
+                requestCancellation,
+                deadlineMs);
 
             if (!_activeOperations.TryAdd(operationId, active))
                 throw new InvalidOperationException($"Could not register active operation '{operationId}'.");
@@ -227,9 +230,24 @@ public sealed class BenchRuntime : IDisposable
             try
             {
                 var result = await action(active.Token);
+                // A vendor adapter may return normally even after ignoring the
+                // linked cancellation token. Do not accept a stale success once
+                // Runtime's deadline/cancellation has already fired.
+                active.Token.ThrowIfCancellationRequested();
                 RecordEvidence(active, OperationEvidenceExtractor.FromResult(result));
                 RecordOperation(active, "completed", null);
                 return result;
+            }
+            catch (OperationCanceledException) when (active.DeadlineExceeded)
+            {
+                var deadline = active.CreateDeadlineException();
+                RecordEvidence(
+                    active,
+                    OperationEvidenceExtractor.FromDeadline(
+                        deadline.DeadlineMs,
+                        deadline.DeadlineAtUtc));
+                RecordOperation(active, "deadline_exceeded", deadline.Message);
+                throw deadline;
             }
             catch (OperationCanceledException)
             {
@@ -260,21 +278,23 @@ public sealed class BenchRuntime : IDisposable
     /// <summary>
     /// Runs a non-mutating observation without taking target/resource mutation
     /// gates. Observations can therefore run alongside flash/power operations,
-    /// while still receiving identity, cancellation, history and bounded
-    /// evidence owned by the resident Runtime.
+    /// while still receiving identity, cancellation, deadline, history and
+    /// bounded evidence owned by the resident Runtime.
     /// </summary>
     internal async Task<T> RunObservation<T>(
         string targetId,
         string observation,
         IReadOnlyCollection<string> resourceIds,
         Func<string, CancellationToken, Task<ObservationExecution<T>>> action,
-        CancellationToken requestCancellation)
+        CancellationToken requestCancellation,
+        int? deadlineMs = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetId);
         ArgumentException.ThrowIfNullOrWhiteSpace(observation);
         ArgumentNullException.ThrowIfNull(resourceIds);
         ArgumentNullException.ThrowIfNull(action);
+        ValidateDeadline(deadlineMs);
         requestCancellation.ThrowIfCancellationRequested();
 
         var normalizedResources = resourceIds
@@ -289,7 +309,8 @@ public sealed class BenchRuntime : IDisposable
             observation,
             normalizedResources,
             DateTimeOffset.UtcNow,
-            requestCancellation);
+            requestCancellation,
+            deadlineMs);
 
         if (!_activeObservations.TryAdd(observationId, active))
         {
@@ -300,9 +321,21 @@ public sealed class BenchRuntime : IDisposable
         try
         {
             var execution = await action(observationId, active.Token);
+            active.Token.ThrowIfCancellationRequested();
             RecordObservationEvidence(active, execution.Evidence);
             RecordObservation(active, "completed", null);
             return execution.Result;
+        }
+        catch (OperationCanceledException) when (active.DeadlineExceeded)
+        {
+            var deadline = active.CreateDeadlineException();
+            RecordObservationEvidence(
+                active,
+                SerialObservationEvidenceExtractor.FromDeadline(
+                    deadline.DeadlineMs,
+                    deadline.DeadlineAtUtc));
+            RecordObservation(active, "deadline_exceeded", deadline.Message);
+            throw deadline;
         }
         catch (OperationCanceledException)
         {
@@ -327,6 +360,7 @@ public sealed class BenchRuntime : IDisposable
     /// Runs a safety action without taking target/resource mutation gates. The
     /// action is intentionally not cancellable once accepted, but it is still
     /// assigned an operation id and written to bounded audit/evidence stores.
+    /// Emergency safety actions deliberately do not accept Runtime deadlines.
     /// </summary>
     internal async Task<T> RunUngatedSafetyOperation<T>(
         string targetId,
@@ -363,6 +397,7 @@ public sealed class BenchRuntime : IDisposable
                 operation,
                 normalizedResources,
                 startedAt,
+                null,
                 "completed",
                 null);
             return result;
@@ -381,6 +416,7 @@ public sealed class BenchRuntime : IDisposable
                 operation,
                 normalizedResources,
                 startedAt,
+                null,
                 "faulted",
                 BoundHistoryError(ex.Message));
             throw;
@@ -443,6 +479,7 @@ public sealed class BenchRuntime : IDisposable
             active.Kind,
             active.ResourceIds,
             active.StartedAtUtc,
+            active.DeadlineAtUtc,
             state,
             error);
 
@@ -452,6 +489,7 @@ public sealed class BenchRuntime : IDisposable
         string kind,
         IReadOnlyList<string> resourceIds,
         DateTimeOffset startedAt,
+        DateTimeOffset? deadlineAtUtc,
         string state,
         string? error)
     {
@@ -465,6 +503,7 @@ public sealed class BenchRuntime : IDisposable
             startedAt,
             completedAt,
             durationMs,
+            deadlineAtUtc,
             state,
             error);
 
@@ -487,6 +526,7 @@ public sealed class BenchRuntime : IDisposable
             active.StartedAtUtc,
             completedAt,
             DurationMs(active.StartedAtUtc, completedAt),
+            active.DeadlineAtUtc,
             state,
             error);
 
@@ -496,6 +536,12 @@ public sealed class BenchRuntime : IDisposable
             while (_observationHistory.Count > ObservationHistoryCapacity)
                 _observationHistory.Dequeue();
         }
+    }
+
+    private static void ValidateDeadline(int? deadlineMs)
+    {
+        if (deadlineMs is <= 0)
+            throw new BenchValidationException("Runtime deadlineMs must be greater than zero.");
     }
 
     private static int DurationMs(DateTimeOffset startedAt, DateTimeOffset completedAt) =>
@@ -539,9 +585,7 @@ public sealed class BenchRuntime : IDisposable
 
     private sealed class ActiveMutation : IDisposable
     {
-        private readonly object _sync = new();
-        private CancellationTokenSource? _cancellation;
-        private bool _cancellationRequested;
+        private readonly RuntimeExecutionCancellation _cancellation;
 
         public ActiveMutation(
             string id,
@@ -549,14 +593,18 @@ public sealed class BenchRuntime : IDisposable
             string kind,
             IReadOnlyList<string> resourceIds,
             DateTimeOffset startedAtUtc,
-            CancellationToken requestCancellation)
+            CancellationToken requestCancellation,
+            int? deadlineMs)
         {
             Id = id;
             TargetId = targetId;
             Kind = kind;
             ResourceIds = resourceIds;
             StartedAtUtc = startedAtUtc;
-            _cancellation = CancellationTokenSource.CreateLinkedTokenSource(requestCancellation);
+            _cancellation = new RuntimeExecutionCancellation(
+                requestCancellation,
+                deadlineMs,
+                startedAtUtc);
         }
 
         public string Id { get; }
@@ -564,73 +612,37 @@ public sealed class BenchRuntime : IDisposable
         public string Kind { get; }
         public IReadOnlyList<string> ResourceIds { get; }
         public DateTimeOffset StartedAtUtc { get; }
+        public int? DeadlineMs => _cancellation.DeadlineMs;
+        public DateTimeOffset? DeadlineAtUtc => _cancellation.DeadlineAtUtc;
+        public bool DeadlineExceeded => _cancellation.DeadlineExceeded;
+        public CancellationToken Token => _cancellation.Token;
 
-        public CancellationToken Token
-        {
-            get
-            {
-                lock (_sync)
-                {
-                    return _cancellation?.Token
-                        ?? new CancellationToken(canceled: true);
-                }
-            }
-        }
+        public BenchOperationInfo Snapshot() =>
+            new(
+                Id,
+                TargetId,
+                Kind,
+                ResourceIds,
+                StartedAtUtc,
+                DeadlineAtUtc,
+                _cancellation.CancellationRequested,
+                DeadlineExceeded);
 
-        public BenchOperationInfo Snapshot()
-        {
-            lock (_sync)
-            {
-                return new BenchOperationInfo(
-                    Id,
-                    TargetId,
-                    Kind,
-                    ResourceIds,
-                    StartedAtUtc,
-                    _cancellationRequested || (_cancellation?.IsCancellationRequested ?? true));
-            }
-        }
+        public bool RequestCancel() => _cancellation.RequestCancel();
 
-        public bool RequestCancel()
-        {
-            CancellationTokenSource? cancellation;
-            lock (_sync)
-            {
-                if (_cancellation is null)
-                    return false;
+        public BenchDeadlineExceededException CreateDeadlineException() =>
+            new(
+                TargetId,
+                Kind,
+                DeadlineMs ?? throw new InvalidOperationException("Deadline metadata is unavailable."),
+                DeadlineAtUtc ?? throw new InvalidOperationException("Deadline metadata is unavailable."));
 
-                _cancellationRequested = true;
-                cancellation = _cancellation;
-            }
-
-            try
-            {
-                cancellation.Cancel();
-                return true;
-            }
-            catch (ObjectDisposedException)
-            {
-                return false;
-            }
-        }
-
-        public void Dispose()
-        {
-            CancellationTokenSource? cancellation;
-            lock (_sync)
-            {
-                cancellation = _cancellation;
-                _cancellation = null;
-            }
-            cancellation?.Dispose();
-        }
+        public void Dispose() => _cancellation.Dispose();
     }
 
     private sealed class ActiveObservation : IDisposable
     {
-        private readonly object _sync = new();
-        private CancellationTokenSource? _cancellation;
-        private bool _cancellationRequested;
+        private readonly RuntimeExecutionCancellation _cancellation;
 
         public ActiveObservation(
             string id,
@@ -638,14 +650,18 @@ public sealed class BenchRuntime : IDisposable
             string kind,
             IReadOnlyList<string> resourceIds,
             DateTimeOffset startedAtUtc,
-            CancellationToken requestCancellation)
+            CancellationToken requestCancellation,
+            int? deadlineMs)
         {
             Id = id;
             TargetId = targetId;
             Kind = kind;
             ResourceIds = resourceIds;
             StartedAtUtc = startedAtUtc;
-            _cancellation = CancellationTokenSource.CreateLinkedTokenSource(requestCancellation);
+            _cancellation = new RuntimeExecutionCancellation(
+                requestCancellation,
+                deadlineMs,
+                startedAtUtc);
         }
 
         public string Id { get; }
@@ -653,65 +669,31 @@ public sealed class BenchRuntime : IDisposable
         public string Kind { get; }
         public IReadOnlyList<string> ResourceIds { get; }
         public DateTimeOffset StartedAtUtc { get; }
+        public int? DeadlineMs => _cancellation.DeadlineMs;
+        public DateTimeOffset? DeadlineAtUtc => _cancellation.DeadlineAtUtc;
+        public bool DeadlineExceeded => _cancellation.DeadlineExceeded;
+        public CancellationToken Token => _cancellation.Token;
 
-        public CancellationToken Token
-        {
-            get
-            {
-                lock (_sync)
-                {
-                    return _cancellation?.Token
-                        ?? new CancellationToken(canceled: true);
-                }
-            }
-        }
+        public BenchObservationInfo Snapshot() =>
+            new(
+                Id,
+                TargetId,
+                Kind,
+                ResourceIds,
+                StartedAtUtc,
+                DeadlineAtUtc,
+                _cancellation.CancellationRequested,
+                DeadlineExceeded);
 
-        public BenchObservationInfo Snapshot()
-        {
-            lock (_sync)
-            {
-                return new BenchObservationInfo(
-                    Id,
-                    TargetId,
-                    Kind,
-                    ResourceIds,
-                    StartedAtUtc,
-                    _cancellationRequested || (_cancellation?.IsCancellationRequested ?? true));
-            }
-        }
+        public bool RequestCancel() => _cancellation.RequestCancel();
 
-        public bool RequestCancel()
-        {
-            CancellationTokenSource? cancellation;
-            lock (_sync)
-            {
-                if (_cancellation is null)
-                    return false;
+        public BenchDeadlineExceededException CreateDeadlineException() =>
+            new(
+                TargetId,
+                Kind,
+                DeadlineMs ?? throw new InvalidOperationException("Deadline metadata is unavailable."),
+                DeadlineAtUtc ?? throw new InvalidOperationException("Deadline metadata is unavailable."));
 
-                _cancellationRequested = true;
-                cancellation = _cancellation;
-            }
-
-            try
-            {
-                cancellation.Cancel();
-                return true;
-            }
-            catch (ObjectDisposedException)
-            {
-                return false;
-            }
-        }
-
-        public void Dispose()
-        {
-            CancellationTokenSource? cancellation;
-            lock (_sync)
-            {
-                cancellation = _cancellation;
-                _cancellation = null;
-            }
-            cancellation?.Dispose();
-        }
+        public void Dispose() => _cancellation.Dispose();
     }
 }
