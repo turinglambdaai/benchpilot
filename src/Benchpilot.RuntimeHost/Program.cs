@@ -112,6 +112,35 @@ app.MapGet($"{BenchpilotApi.Prefix}/operations/history", (
     }
 });
 
+app.MapGet($"{BenchpilotApi.Prefix}/operations/{{operationId}}/evidence", (
+    string operationId,
+    BenchRuntime runtime) =>
+{
+    if (string.IsNullOrWhiteSpace(operationId))
+        return Results.BadRequest(new ApiError(false, "validation", "Operation id cannot be empty."));
+
+    var evidence = runtime.GetOperationEvidence(operationId);
+    if (evidence is null)
+    {
+        return Results.NotFound(new ApiError(
+            false,
+            "not_found",
+            $"Evidence for operation '{operationId}' was not found."));
+    }
+
+    var items = evidence.Items
+        .Select(x => new EvidenceItemSummary(x.Kind, x.Summary, x.Text, x.Metadata))
+        .ToArray();
+    return Results.Json(new OperationEvidenceResult(
+        true,
+        evidence.OperationId,
+        evidence.TargetId,
+        evidence.OperationKind,
+        evidence.ResourceIds,
+        evidence.CreatedAtUtc,
+        items));
+});
+
 app.MapPost($"{BenchpilotApi.Prefix}/operations/{{operationId}}/cancel", (
     string operationId,
     BenchRuntime runtime) =>
