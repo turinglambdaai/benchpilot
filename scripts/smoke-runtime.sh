@@ -46,6 +46,30 @@ cli history --limit 10 --json
 cli observe list --json
 cli observe history --limit 10 --json
 cli preflight --json
+
+# The built-in simulator must never be reported as a physical real-ECU bench.
+# `bench validate` is an assertion-style command: the report itself succeeds,
+# but a not-ready target returns exit code 1 and actionable remediation.
+set +e
+readiness_json="$(cli bench validate --target demo --json)"
+readiness_code=$?
+set -e
+printf '%s\n' "$readiness_json"
+if [[ $readiness_code -ne 1 ]]; then
+  echo "expected simulator bench validation to return exit code 1, got $readiness_code" >&2
+  exit 1
+fi
+printf '%s' "$readiness_json" | python3 -c '
+import json,sys
+r=json.load(sys.stdin)
+assert r["ok"] is True
+assert r["readyForRealEcuLoop"] is False
+assert r["mode"] == "simulator"
+real=next(x for x in r["checks"] if x["code"] == "target.real-hardware")
+assert real["passed"] is False
+assert real.get("remediation")
+'
+
 cli power on --voltage 12 --settle-ms 200 --json
 # No --port/--baud here: the shell must let the resource profile own device details.
 cli serial open --json

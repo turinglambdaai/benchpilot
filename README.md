@@ -12,7 +12,7 @@ Build -> Flash -> Run -> Observe -> Diagnose -> Fix
 
 BenchPilot is **not** a CANoe clone. It does not aim to reproduce full vehicle-network simulation, CAPL, ADAS simulation or hundreds of analysis windows. CAN/CAN FD, DBC, ISO-TP, UDS and DoIP are added when they help complete the ECU development loop.
 
-> Current status: **runtime foundation validated**. A resident Runtime, versioned local API, CLI and MCP adapter share one simulated power + serial + flash bench state. Windows/Linux build and tests pass, and CI executes the full resident-runtime CLI smoke loop. The next milestone is real serial + J-Link + SCPI hardware.
+> Current status: **real-bench software foundation ready for physical validation**. The resident Runtime, versioned local API, CLI and MCP adapter share one hardware state and safety boundary. Real `system-serial`, J-Link Commander and SCPI power drivers, non-destructive preflight/readiness checks, bounded operation/observation evidence and graceful Runtime shutdown are implemented. Windows/Linux CI is green. The next gate is validation against an actual ECU + J-Link + serial + bench supply, not adding more protocols.
 
 ## Why BenchPilot?
 
@@ -80,7 +80,7 @@ BenchPilot has exactly one owner of live hardware state:
                         ECU
 ```
 
-`benchpilotd` is the resident process. CLI, MCP and future GUI clients **must not open hardware independently**. This guarantees shared device state, one safety boundary and one place for future resource locking/capture buffers.
+`benchpilotd` is the resident process. CLI, MCP and future GUI clients **must not open hardware independently**. This guarantees shared device state, one safety boundary and one place for resource locking, observations and evidence.
 
 The foundation transport is HTTP JSON bound to loopback only. `benchpilotd` refuses non-loopback binding until an authenticated remote-bench transport exists.
 
@@ -92,17 +92,18 @@ The simulator behaves like one small physical bench:
 - virtual firmware boot log;
 - flash/reset behavior;
 - shared state across power, serial and flash;
-- context-compressed serial wait observation;
+- context-compressed serial wait observations;
 - Runtime safety validation;
 - CLI and MCP clients over the same resident state.
 
-No physical hardware is required.
+No physical hardware is required for the simulator path.
 
 ### Requirements
 
 - .NET SDK 10.0+
 - Git
 - an MCP-capable client for Agent use (optional)
+- for physical benches: the vendor/OS tools referenced by the selected profile, such as SEGGER J-Link Commander
 
 ### Build and test
 
@@ -152,17 +153,59 @@ dotnet run --project src/Benchpilot.Cli -- power check --lt-ma 100 --json
 dotnet run --project src/Benchpilot.Cli -- power off --json
 ```
 
-CLI exit codes are intentionally stable:
+### 3. Validate a physical bench before touching the ECU
+
+Start from the checked-in example profile and replace every `CHANGE_ME` value with your actual bench information:
 
 ```text
-0 success
-1 operation/assertion failure
-2 validation error
-3 target/resource not found
-4 runtime/device unavailable or device error
+profiles/real-ecu.example.json
 ```
 
-### 3. Run the MCP adapter
+Then start Runtime with that profile and run the readiness report **before** power/reset/flash:
+
+```bash
+BENCHPILOT_PROFILE=profiles/real-ecu.example.json \
+  dotnet run --project src/Benchpilot.RuntimeHost
+
+# In another terminal:
+dotnet run --project src/Benchpilot.Cli -- \
+  bench validate --target ecu --json
+```
+
+`bench validate` is deliberately non-destructive. It checks:
+
+- required `power`, `serial` and `flash` bindings;
+- that those capabilities are backed by real hardware drivers rather than the simulator;
+- `maxVoltage` / `maxCurrentMa` safety ceilings;
+- explicit-target and destructive-operation confirmation policy;
+- unresolved `CHANGE_ME` placeholders;
+- non-destructive serial/J-Link/SCPI preflight results.
+
+Every failed check carries a stable machine-facing code and an actionable `remediation` string. A report can therefore be consumed directly by a human, CI job or Agent without guessing what to fix next.
+
+A physical target is ready for the first real-ECU loop only when the report contains:
+
+```json
+{
+  "ok": true,
+  "readyForRealEcuLoop": true,
+  "mode": "hardware"
+}
+```
+
+Only then move on to the destructive path:
+
+```text
+preflight
+  -> power on
+  -> serial open
+  -> flash / reset
+  -> wait for Ready
+  -> current check
+  -> normal power off
+```
+
+### 4. Run the MCP adapter
 
 With `benchpilotd` still running:
 
@@ -170,11 +213,30 @@ With `benchpilotd` still running:
 dotnet run --project src/Benchpilot.Mcp
 ```
 
-The MCP process is only a stdio protocol adapter. It calls the same resident Runtime as CLI, so an Agent and a terminal observe the same ECU/bench state.
+The MCP process is only a stdio protocol adapter. It calls the same resident Runtime as CLI, so an Agent and a terminal observe the same ECU/bench state. The MCP `BenchValidate` tool exposes the same non-destructive readiness report as CLI.
 
 Example Agent task:
 
-> Power on the demo ECU at 12 V, flash `build/app.elf`, wait for the console to print `Ready`, verify idle current is below 100 mA, then power it off.
+> Validate the `ecu` target for real-bench readiness. Do not power, reset or flash anything. If it is not ready, tell me exactly which checks failed and how to fix them.
+
+After the target is ready, an Agent can execute a constrained bench loop such as:
+
+> Power on the ECU at 12 V, flash the selected firmware, wait for the console to print `Ready`, verify idle current is below the configured threshold, then power it off.
+
+## CLI exit codes
+
+CLI exit codes are intentionally stable and machine-friendly:
+
+```text
+0 success / readiness passed
+1 operation, assertion or readiness failure; cancellation
+2 validation error
+3 target/resource/operation/observation/evidence not found
+4 runtime/device unavailable or device/preflight error
+5 target/resource busy because another mutating operation is active
+```
+
+A `bench validate` exit code of `1` does **not** mean the readiness API failed. It means the report executed successfully but one or more blocking readiness checks failed; inspect the JSON checks and remediation fields.
 
 ## Resource / target profile
 
@@ -186,20 +248,16 @@ BenchPilot does not assume that a real bench has one monolithic `hardware` drive
   "defaultTarget": "radar",
   "resources": {
     "psu.main": {
-      "driver": "scpi",
+      "driver": "scpi-power",
       "capabilities": ["power"]
     },
     "probe.radar": {
       "driver": "jlink",
-      "capabilities": ["flash", "debug"]
+      "capabilities": ["flash"]
     },
     "uart.radar": {
       "driver": "system-serial",
       "capabilities": ["serial"]
-    },
-    "can.vehicle": {
-      "driver": "pcan",
-      "capabilities": ["can"]
     }
   },
   "targets": {
@@ -208,14 +266,15 @@ BenchPilot does not assume that a real bench has one monolithic `hardware` drive
       "bindings": {
         "power": "psu.main",
         "flash": "probe.radar",
-        "serial": "uart.radar",
-        "can": "can.vehicle"
+        "serial": "uart.radar"
       }
     }
   },
   "safety": {
     "maxVoltage": 14.5,
-    "requireExplicitTarget": true
+    "maxCurrentMa": 2500,
+    "requireExplicitTarget": true,
+    "requireDestructiveConfirmation": true
   }
 }
 ```
@@ -227,34 +286,39 @@ Legacy P0 profiles are normalized automatically so the simulator demo remains co
 ```text
 benchpilot/
 ├── src/
-│   ├── Benchpilot.Core/         # vendor-neutral domain/profile contracts
-│   ├── Benchpilot.Protocol/     # versioned local API request/status contracts
-│   ├── Benchpilot.Runtime/      # target operations, safety, live resources
-│   ├── Benchpilot.RuntimeHost/  # benchpilotd resident loopback API process
-│   ├── Benchpilot.Client/       # shared IPC client for every shell
-│   ├── Benchpilot.Cli/          # stable commands, JSON and exit codes
-│   ├── Benchpilot.Mcp/          # thin stdio MCP -> Runtime proxy
-│   └── Benchpilot.Simulator/    # deterministic virtual bench
+│   ├── Benchpilot.Core/              # vendor-neutral domain/profile contracts
+│   ├── Benchpilot.Protocol/          # versioned local API contracts
+│   ├── Benchpilot.Runtime/           # target operations, safety, evidence/readiness
+│   ├── Benchpilot.RuntimeHost/       # benchpilotd resident loopback API process
+│   ├── Benchpilot.Client/            # shared IPC client for every shell
+│   ├── Benchpilot.Cli/               # stable commands, JSON and exit codes
+│   ├── Benchpilot.Mcp/               # thin stdio MCP -> Runtime proxy
+│   ├── Benchpilot.Simulator/         # deterministic virtual bench
+│   ├── Benchpilot.Drivers.Serial/    # system serial backend
+│   ├── Benchpilot.Drivers.JLink/     # SEGGER J-Link Commander adapter
+│   └── Benchpilot.Drivers.ScpiPower/ # TCP SCPI power-supply adapter
 ├── tests/
 │   └── Benchpilot.Core.Tests/
 ├── profiles/
-│   └── demo.profile.json
+│   ├── demo.profile.json
+│   └── real-ecu.example.json
 ├── scripts/
-│   └── smoke-runtime.sh
+│   ├── smoke-runtime.sh
+│   └── smoke-shutdown.sh
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   └── adr/
 └── ROADMAP.md
 ```
 
-Future driver/protocol/Flash/Studio projects plug into these boundaries rather than opening parallel hardware stacks.
+Future CAN/protocol/Flash/Studio projects plug into these boundaries rather than opening parallel hardware stacks.
 
 ## Product priorities
 
-Near-term work is deliberately a vertical slice rather than broad protocol coverage:
+Near-term work remains a vertical slice rather than broad protocol coverage:
 
-1. resource-driver factory/lifecycle boundary;
-2. real serial + J-Link + SCPI power;
+1. validate `system-serial` + J-Link + SCPI power against one physical ECU and check in a repeatable known-good profile;
+2. correlate power/current context with flash/boot failures and strengthen real-bench evidence;
 3. CAN/CAN FD + DBC observations via SocketCAN and PCAN;
 4. ISO-TP + UDS;
 5. professional, hardware-aware UDS Flash Engine;

@@ -21,4 +21,10 @@ internal sealed class BenchTools
     public async Task<TargetPreflightResult> BenchPreflight(
         [Description("Semantic target id. Omit to use defaultTarget when policy allows it.")] string? target = null) =>
         await _client.Preflight(target, CancellationToken.None);
+
+    [McpServerTool]
+    [Description("Validate whether a semantic target is ready for BenchPilot's minimum real-ECU loop. Checks power/serial/flash bindings, hardware-vs-simulator mode, safety policy, placeholders and non-destructive resource preflight. Returns actionable remediation and never powers, resets or flashes the ECU.")]
+    public async Task<TargetReadinessResult> BenchValidate(
+        [Description("Semantic target id. Real bench safety policy normally requires this explicitly.")] string? target = null) =>
+        await _client.ValidateTargetReadiness(target, CancellationToken.None);
 }
