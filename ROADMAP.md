@@ -74,7 +74,7 @@ Architecture prerequisite:
 - [x] replace RuntimeHost's simulator-only composition with a resource-driver factory registry;
 - [x] define driver lifetime/disposal without leaking vendor SDK types into Core;
 
-First real drivers:
+First real drivers and onboarding:
 
 - [x] `system-serial` backend implementation;
 - [x] J-Link Commander backend for flash/reset;
@@ -85,9 +85,21 @@ First real drivers:
 - [x] J-Link Commander discovery;
 - [x] non-destructive J-Link `ShowEmuList USB` probe enumeration;
 - [x] deterministic J-Link serial-number matching when multiple probes are present;
+- [x] non-destructive `bench validate` real-ECU readiness report through Runtime / CLI / MCP;
+- [x] readiness checks for required power/serial/flash bindings, real-hardware mode, safety policy and unresolved placeholders;
+- [x] actionable remediation attached to failed readiness checks for humans, CI and Agents;
+- [x] checked-in `profiles/real-ecu.example.json` onboarding template;
 - [ ] physical serial + J-Link validation against a real ECU;
 - [ ] physical SCPI PSU validation against a real ECU bench;
-- [ ] one documented, repeatable real-ECU smoke profile checked into `profiles/` after hardware validation.
+- [ ] one documented, repeatable **known-good physical** real-ECU smoke profile checked into `profiles/` after hardware validation.
+
+The first physical-bench command should now be:
+
+```text
+bench validate --target <ecu> --json
+```
+
+A physical target should not proceed to destructive work until the report has `ok=true`, `readyForRealEcuLoop=true`, and `mode=hardware`.
 
 Serial design:
 
@@ -132,7 +144,8 @@ The Runtime now makes individual failures explainable to an Agent without dumpin
 Real-bench exit criterion:
 
 ```text
-preflight
+bench validate
+   -> preflight
    -> power on + current safety check
    -> flash
    -> reset
