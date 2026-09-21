@@ -12,7 +12,9 @@ public record ApiError(
     string Error,
     string? OperationId = null,
     string? BusyScope = null,
-    string? BusyId = null);
+    string? BusyId = null,
+    int? DeadlineMs = null,
+    DateTimeOffset? DeadlineAtUtc = null);
 
 public record TargetSummary(
     string Id,
@@ -41,7 +43,9 @@ public record OperationSummary(
     string Kind,
     IReadOnlyList<string> ResourceIds,
     DateTimeOffset StartedAtUtc,
-    bool CancellationRequested);
+    DateTimeOffset? DeadlineAtUtc,
+    bool CancellationRequested,
+    bool DeadlineExceeded);
 
 public record OperationListResult(
     bool Ok,
@@ -62,6 +66,7 @@ public record OperationHistorySummary(
     DateTimeOffset StartedAtUtc,
     DateTimeOffset CompletedAtUtc,
     int DurationMs,
+    DateTimeOffset? DeadlineAtUtc,
     string State,
     string? Error = null);
 
@@ -76,7 +81,9 @@ public record ObservationSummary(
     string Kind,
     IReadOnlyList<string> ResourceIds,
     DateTimeOffset StartedAtUtc,
-    bool CancellationRequested);
+    DateTimeOffset? DeadlineAtUtc,
+    bool CancellationRequested,
+    bool DeadlineExceeded);
 
 public record ObservationListResult(
     bool Ok,
@@ -97,6 +104,7 @@ public record ObservationHistorySummary(
     DateTimeOffset StartedAtUtc,
     DateTimeOffset CompletedAtUtc,
     int DurationMs,
+    DateTimeOffset? DeadlineAtUtc,
     string State,
     string? Error = null);
 
