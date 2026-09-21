@@ -24,19 +24,31 @@ public sealed class BenchBusyException : BenchRuntimeException
         string targetId,
         string operation,
         string busyScope = "target",
-        string? busyId = null)
-        : base(CreateMessage(targetId, operation, busyScope, busyId))
+        string? busyId = null,
+        string? ownerOperationId = null,
+        string? ownerOperation = null)
+        : base(CreateMessage(
+            targetId,
+            operation,
+            busyScope,
+            busyId,
+            ownerOperationId,
+            ownerOperation))
     {
         TargetId = targetId;
         Operation = operation;
         BusyScope = busyScope;
         BusyId = busyId ?? targetId;
+        OwnerOperationId = ownerOperationId;
+        OwnerOperation = ownerOperation;
     }
 
     public string TargetId { get; }
     public string Operation { get; }
     public string BusyScope { get; }
     public string BusyId { get; }
+    public string? OwnerOperationId { get; }
+    public string? OwnerOperation { get; }
     public string? ResourceId =>
         string.Equals(BusyScope, "resource", StringComparison.OrdinalIgnoreCase)
             ? BusyId
@@ -46,19 +58,33 @@ public sealed class BenchBusyException : BenchRuntimeException
         string targetId,
         string operation,
         string busyScope,
-        string? busyId)
+        string? busyId,
+        string? ownerOperationId,
+        string? ownerOperation)
     {
+        var owner = string.IsNullOrWhiteSpace(ownerOperationId)
+            ? string.Empty
+            : $" Active operation: {ownerOperation ?? "mutation"} ({ownerOperationId}).";
+
         if (string.Equals(busyScope, "resource", StringComparison.OrdinalIgnoreCase))
         {
             var resourceId = busyId ?? "unknown";
             return $"Resource '{resourceId}' is busy with another mutating operation; " +
-                $"target '{targetId}' operation '{operation}' was not started.";
+                $"target '{targetId}' operation '{operation}' was not started.{owner}";
         }
 
         return $"Target '{targetId}' is busy with another mutating operation; " +
-            $"'{operation}' was not started.";
+            $"'{operation}' was not started.{owner}";
     }
 }
+
+public sealed record BenchOperationInfo(
+    string Id,
+    string TargetId,
+    string Kind,
+    IReadOnlyList<string> ResourceIds,
+    DateTimeOffset StartedAtUtc,
+    bool CancellationRequested);
 
 /// <summary>
 /// Owns live resource instances for one bench process. Device handles are
@@ -151,6 +177,8 @@ public sealed class BenchRuntime : IDisposable
 {
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _mutationGates =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ActiveMutation> _activeOperations =
+        new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
 
     public BenchProfile Profile { get; }
@@ -161,6 +189,27 @@ public sealed class BenchRuntime : IDisposable
         Profile = profile ?? throw new ArgumentNullException(nameof(profile));
         Resources = resources ?? throw new ArgumentNullException(nameof(resources));
         ProfileLoader.Validate(profile);
+    }
+
+    public IReadOnlyList<BenchOperationInfo> ActiveOperations
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _activeOperations.Values
+                .Select(x => x.Snapshot())
+                .OrderBy(x => x.StartedAtUtc)
+                .ThenBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+    }
+
+    public bool CancelOperation(string operationId)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        return _activeOperations.TryGetValue(operationId, out var active)
+            && active.RequestCancel();
     }
 
     public BenchTarget Target(string? targetName = null)
@@ -194,76 +243,208 @@ public sealed class BenchRuntime : IDisposable
         string targetId,
         string operation,
         IReadOnlyCollection<string> resourceIds,
-        Func<Task<T>> action,
-        CancellationToken ct)
+        Func<CancellationToken, Task<T>> action,
+        CancellationToken requestCancellation)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetId);
         ArgumentException.ThrowIfNullOrWhiteSpace(operation);
         ArgumentNullException.ThrowIfNull(resourceIds);
         ArgumentNullException.ThrowIfNull(action);
-        ct.ThrowIfCancellationRequested();
+        requestCancellation.ThrowIfCancellationRequested();
+
+        var normalizedResources = resourceIds
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
         // Target ownership is the primary semantic boundary, so acquire it
-        // first. Resource gates follow in a deterministic order. Acquisition is
+        // first. Resource gates follow in deterministic order. Acquisition is
         // non-blocking; if any later gate is busy we immediately release what
         // we already acquired, so there is no wait-cycle/deadlock risk.
         var requests = new List<MutationGateRequest>
         {
             new($"target:{targetId}", "target", targetId),
         };
-
-        requests.AddRange(resourceIds
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-            .Select(resourceId => new MutationGateRequest(
-                $"resource:{resourceId}",
-                "resource",
-                resourceId)));
+        requests.AddRange(normalizedResources.Select(resourceId => new MutationGateRequest(
+            $"resource:{resourceId}",
+            "resource",
+            resourceId)));
 
         var acquired = new List<SemaphoreSlim>(requests.Count);
+        ActiveMutation? active = null;
         try
         {
             foreach (var request in requests)
             {
-                ct.ThrowIfCancellationRequested();
+                requestCancellation.ThrowIfCancellationRequested();
                 var gate = _mutationGates.GetOrAdd(
                     request.Key,
                     static _ => new SemaphoreSlim(1, 1));
 
-                if (!await gate.WaitAsync(0, ct))
+                if (!await gate.WaitAsync(0, requestCancellation))
                 {
+                    var owner = FindOwner(request.Scope, request.Id);
                     throw new BenchBusyException(
                         targetId,
                         operation,
                         request.Scope,
-                        request.Id);
+                        request.Id,
+                        owner?.Id,
+                        owner?.Kind);
                 }
 
                 acquired.Add(gate);
             }
 
-            return await action();
+            var operationId = Guid.NewGuid().ToString("N");
+            active = new ActiveMutation(
+                operationId,
+                targetId,
+                operation,
+                normalizedResources,
+                DateTimeOffset.UtcNow,
+                requestCancellation);
+
+            if (!_activeOperations.TryAdd(operationId, active))
+                throw new InvalidOperationException($"Could not register active operation '{operationId}'.");
+
+            return await action(active.Token);
         }
         finally
         {
+            if (active is not null)
+            {
+                _activeOperations.TryRemove(active.Id, out _);
+                active.Dispose();
+            }
+
             for (var i = acquired.Count - 1; i >= 0; i--)
                 acquired[i].Release();
         }
+    }
+
+    private BenchOperationInfo? FindOwner(string scope, string id)
+    {
+        foreach (var active in _activeOperations.Values)
+        {
+            var snapshot = active.Snapshot();
+            if (string.Equals(scope, "target", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(snapshot.TargetId, id, StringComparison.OrdinalIgnoreCase))
+            {
+                return snapshot;
+            }
+
+            if (string.Equals(scope, "resource", StringComparison.OrdinalIgnoreCase)
+                && snapshot.ResourceIds.Contains(id, StringComparer.OrdinalIgnoreCase))
+            {
+                return snapshot;
+            }
+        }
+
+        return null;
     }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+
+        foreach (var active in _activeOperations.Values)
+            active.RequestCancel();
+
         Resources.Dispose();
+
+        foreach (var active in _activeOperations.Values)
+            active.Dispose();
+        _activeOperations.Clear();
+
         foreach (var gate in _mutationGates.Values)
             gate.Dispose();
         _mutationGates.Clear();
     }
 
     private sealed record MutationGateRequest(string Key, string Scope, string Id);
+
+    private sealed class ActiveMutation : IDisposable
+    {
+        private readonly object _sync = new();
+        private CancellationTokenSource? _cancellation;
+        private bool _cancellationRequested;
+
+        public ActiveMutation(
+            string id,
+            string targetId,
+            string kind,
+            IReadOnlyList<string> resourceIds,
+            DateTimeOffset startedAtUtc,
+            CancellationToken requestCancellation)
+        {
+            Id = id;
+            TargetId = targetId;
+            Kind = kind;
+            ResourceIds = resourceIds;
+            StartedAtUtc = startedAtUtc;
+            _cancellation = CancellationTokenSource.CreateLinkedTokenSource(requestCancellation);
+        }
+
+        public string Id { get; }
+        public string TargetId { get; }
+        public string Kind { get; }
+        public IReadOnlyList<string> ResourceIds { get; }
+        public DateTimeOffset StartedAtUtc { get; }
+
+        public CancellationToken Token
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _cancellation?.Token
+                        ?? new CancellationToken(canceled: true);
+                }
+            }
+        }
+
+        public BenchOperationInfo Snapshot()
+        {
+            lock (_sync)
+            {
+                return new BenchOperationInfo(
+                    Id,
+                    TargetId,
+                    Kind,
+                    ResourceIds,
+                    StartedAtUtc,
+                    _cancellationRequested || (_cancellation?.IsCancellationRequested ?? true));
+            }
+        }
+
+        public bool RequestCancel()
+        {
+            lock (_sync)
+            {
+                if (_cancellation is null)
+                    return false;
+
+                _cancellationRequested = true;
+                _cancellation.Cancel();
+                return true;
+            }
+        }
+
+        public void Dispose()
+        {
+            CancellationTokenSource? cancellation;
+            lock (_sync)
+            {
+                cancellation = _cancellation;
+                _cancellation = null;
+            }
+            cancellation?.Dispose();
+        }
+    }
 }
 
 /// <summary>
@@ -309,15 +490,15 @@ public sealed class BenchTarget
                 $"Requested voltage {voltage:0.###} V exceeds bench safety limit {maxVoltage:0.###} V.");
 
         var binding = BoundCapability<IPowerSupply>("power");
-        return await _runtime.RunMutation(Id, "power.on", [binding.ResourceId], async () =>
+        return await _runtime.RunMutation(Id, "power.on", [binding.ResourceId], async operationCt =>
         {
-            var result = await binding.Capability.PowerOn(voltage, settleMs, ct);
+            var result = await binding.Capability.PowerOn(voltage, settleMs, operationCt);
 
             if (result.Ok &&
                 _runtime.Profile.Safety.MaxCurrentMa is { } maxCurrentMa &&
                 result.CurrentMa > maxCurrentMa)
             {
-                var off = await binding.Capability.PowerOff(ct);
+                var off = await binding.Capability.PowerOff(CancellationToken.None);
                 var suffix = off.Ok ? "Power output was switched off." : "Power-off also reported an error.";
                 return result with
                 {
@@ -344,7 +525,7 @@ public sealed class BenchTarget
             Id,
             "power.off",
             [binding.ResourceId],
-            () => binding.Capability.PowerOff(ct),
+            operationCt => binding.Capability.PowerOff(operationCt),
             ct);
     }
 
@@ -389,7 +570,7 @@ public sealed class BenchTarget
             Id,
             "flash.write",
             [binding.ResourceId],
-            () => binding.Capability.Flash(firmware, ct),
+            operationCt => binding.Capability.Flash(firmware, operationCt),
             ct);
     }
 
@@ -404,7 +585,7 @@ public sealed class BenchTarget
             Id,
             "flash.reset",
             [binding.ResourceId],
-            () => binding.Capability.Reset(ct),
+            operationCt => binding.Capability.Reset(operationCt),
             ct);
     }
 
