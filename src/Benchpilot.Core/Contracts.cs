@@ -64,12 +64,15 @@ public record TargetPreflightResult(
 /// One deterministic onboarding/readiness assertion. Severity is currently
 /// `error` or `warning`; only failed error checks block ReadyForRealEcuLoop.
 /// Codes are stable machine-facing identifiers for CLI/CI/Agent consumers.
+/// Remediation is intentionally actionable so an Agent can repair a profile or
+/// tell a human exactly which physical/tooling prerequisite is missing.
 /// </summary>
 public record BenchReadinessCheck(
     string Code,
     bool Passed,
     string Severity,
     string Summary,
+    string? Remediation = null,
     IReadOnlyDictionary<string, string>? Details = null);
 
 /// <summary>
