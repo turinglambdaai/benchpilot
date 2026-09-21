@@ -163,13 +163,59 @@ public class RuntimeTests
     }
 
     [Fact]
-    public async Task Concurrent_mutating_operations_are_rejected_instead_of_queued()
+    public async Task Active_mutation_has_identity_and_can_be_cancelled()
+    {
+        var (runtime, bench) = NewRuntime();
+        var target = runtime.Target();
+        Assert.True((await target.PowerOn(12, 0)).Ok);
+        Assert.True(bench.IsOn);
+
+        var flash = target.Flash("build/cancellable.elf");
+        var active = Assert.Single(runtime.ActiveOperations);
+
+        Assert.True(Guid.TryParseExact(active.Id, "N", out _));
+        Assert.Equal("demo", active.TargetId);
+        Assert.Equal("flash.write", active.Kind);
+        Assert.Equal(["sim.demo"], active.ResourceIds);
+        Assert.False(active.CancellationRequested);
+        Assert.True(runtime.CancelOperation(active.Id));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await flash);
+        Assert.Empty(runtime.ActiveOperations);
+        Assert.True(bench.IsOn);
+
+        // Cancellation must release both target and resource gates.
+        Assert.True((await target.Reset()).Ok);
+        Assert.False(runtime.CancelOperation(active.Id));
+    }
+
+    [Fact]
+    public async Task Cancelling_power_on_rolls_back_simulated_power_state()
+    {
+        var (runtime, bench) = NewRuntime();
+        var target = runtime.Target();
+
+        var powerOn = target.PowerOn(12, 5000);
+        var active = Assert.Single(runtime.ActiveOperations);
+        Assert.Equal("power.on", active.Kind);
+        Assert.True(bench.IsOn);
+
+        Assert.True(runtime.CancelOperation(active.Id));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await powerOn);
+
+        Assert.Empty(runtime.ActiveOperations);
+        Assert.False(bench.IsOn);
+    }
+
+    [Fact]
+    public async Task Concurrent_mutating_operations_report_active_owner()
     {
         var (runtime, _) = NewRuntime();
         var target = runtime.Target();
         Assert.True((await target.PowerOn(12, 0)).Ok);
 
         var flash = target.Flash("build/app.elf");
+        var active = Assert.Single(runtime.ActiveOperations);
         var busy = await Assert.ThrowsAsync<BenchBusyException>(() => target.Reset());
 
         Assert.Equal("demo", busy.TargetId);
@@ -177,7 +223,9 @@ public class RuntimeTests
         Assert.Equal("target", busy.BusyScope);
         Assert.Equal("demo", busy.BusyId);
         Assert.Null(busy.ResourceId);
-        Assert.Contains("busy", busy.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(active.Id, busy.OwnerOperationId);
+        Assert.Equal("flash.write", busy.OwnerOperation);
+        Assert.Contains(active.Id, busy.Message);
         Assert.True((await flash).Ok);
     }
 
@@ -191,6 +239,7 @@ public class RuntimeTests
         Assert.True(sharedBench.IsOn);
 
         var flash = ecuA.Flash("build/ecu-a.elf");
+        var active = Assert.Single(runtime.ActiveOperations);
         var busy = await Assert.ThrowsAsync<BenchBusyException>(() => ecuB.Reset());
 
         Assert.Equal("ecu-b", busy.TargetId);
@@ -198,6 +247,7 @@ public class RuntimeTests
         Assert.Equal("resource", busy.BusyScope);
         Assert.Equal("sim.shared", busy.BusyId);
         Assert.Equal("sim.shared", busy.ResourceId);
+        Assert.Equal(active.Id, busy.OwnerOperationId);
         Assert.Contains("sim.shared", busy.Message);
         Assert.True((await flash).Ok);
     }
