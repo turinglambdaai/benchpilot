@@ -96,14 +96,16 @@ internal static class OperationEvidenceExtractor
         };
     }
 
+    // Explicit user/runtime cancellation is already self-explanatory and is
+    // intentionally kept minimal. Cross-operation context is reserved for
+    // device-error or infrastructure-fault diagnosis.
     public static IReadOnlyList<BenchEvidenceItem> FromCancellation() =>
-        TargetContextEvidence.AppendFailureContext(
-        [
-            Item(
-                "runtime.cancelled",
-                "Operation was cancelled before normal completion.",
-                "Operation cancelled.")
-        ]);
+    [
+        Item(
+            "runtime.cancelled",
+            "Operation was cancelled before normal completion.",
+            "Operation cancelled.")
+    ];
 
     public static IReadOnlyList<BenchEvidenceItem> FromException(Exception exception)
     {
