@@ -6,7 +6,13 @@ public static class BenchpilotApi
     public const string Prefix = "/api/v1";
 }
 
-public record ApiError(bool Ok, string Code, string Error);
+public record ApiError(
+    bool Ok,
+    string Code,
+    string Error,
+    string? OperationId = null,
+    string? BusyScope = null,
+    string? BusyId = null);
 
 public record TargetSummary(
     string Id,
@@ -27,6 +33,25 @@ public record RuntimeStatusResult(
     string? DefaultTarget,
     IReadOnlyList<TargetSummary> Targets,
     IReadOnlyList<ResourceSummary> Resources,
+    string? Error = null);
+
+public record OperationSummary(
+    string Id,
+    string TargetId,
+    string Kind,
+    IReadOnlyList<string> ResourceIds,
+    DateTimeOffset StartedAtUtc,
+    bool CancellationRequested);
+
+public record OperationListResult(
+    bool Ok,
+    IReadOnlyList<OperationSummary> Operations,
+    string? Error = null);
+
+public record OperationCancelResult(
+    bool Ok,
+    string OperationId,
+    bool CancelRequested,
     string? Error = null);
 
 public record PowerOnRequest(double Voltage = 12, int SettleMs = 2000);

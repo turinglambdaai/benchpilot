@@ -12,6 +12,7 @@ builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 builder.Services.AddMcpServer()
     .WithStdioServerTransport()
     .WithTools<BenchTools>()
+    .WithTools<OperationTools>()
     .WithTools<PowerTools>()
     .WithTools<FlashTools>()
     .WithTools<SerialTools>();

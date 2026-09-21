@@ -54,14 +54,28 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
         var wait = Math.Clamp(settleMs, 0, 5000);
         return Task.Run(async () =>
         {
-            try { await Task.Delay(wait, ct); } catch (OperationCanceledException) { }
-            BootFirmware();
-            return new PowerOnResult(true, voltage, CurrentMaNow(), true);
+            try
+            {
+                await Task.Delay(wait, ct);
+                ct.ThrowIfCancellationRequested();
+                BootFirmware();
+                return new PowerOnResult(true, voltage, CurrentMaNow(), true);
+            }
+            catch (OperationCanceledException)
+            {
+                lock (_gate)
+                {
+                    _powered = false;
+                    _console.Clear();
+                }
+                throw;
+            }
         }, ct);
     }
 
     public Task<PowerOffResult> PowerOff(CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         lock (_gate)
         {
             _powered = false;
@@ -103,7 +117,8 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
             return new FlashResult(false, 0, 0, "Power is off; cannot flash.");
         var bytes = 256 * 1024 + _rng.Next(0, 4096);
         var durationMs = 400 + _rng.Next(0, 250);
-        try { await Task.Delay(durationMs, ct); } catch (OperationCanceledException) { }
+        await Task.Delay(durationMs, ct);
+        ct.ThrowIfCancellationRequested();
         _firmware = string.IsNullOrWhiteSpace(firmwarePath) ? "app.elf" : Path.GetFileName(firmwarePath);
         BootFirmware();
         return new FlashResult(true, bytes, durationMs);
@@ -111,6 +126,7 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
 
     public Task<ResetResult> Reset(CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         if (!_powered)
             return Task.FromResult(new ResetResult(false, "Power is off; cannot reset."));
         BootFirmware();
@@ -121,6 +137,7 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
 
     public Task<SerialOpenResult> Open(string? port = null, int? baud = null, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         var resolvedPort = string.IsNullOrWhiteSpace(port) ? "SIM0" : port;
         var resolvedBaud = baud ?? 115200;
         return Task.FromResult(new SerialOpenResult(true, resolvedPort, resolvedBaud));
@@ -143,6 +160,7 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
 
     public Task<SerialWindowResult> ReadWindow(int lines, string? filter, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         IEnumerable<ConsoleLine> q = _console.ToArray();
         if (!string.IsNullOrEmpty(filter))
             q = q.Where(l => l.Text.Contains(filter, StringComparison.OrdinalIgnoreCase));
@@ -150,8 +168,11 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
         return Task.FromResult(new SerialWindowResult(true, result));
     }
 
-    public Task<SerialSendResult> Send(string data, CancellationToken ct = default) =>
-        Task.FromResult(new SerialSendResult(true));
+    public Task<SerialSendResult> Send(string data, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(new SerialSendResult(true));
+    }
 
     public Task<ResourceHealthResult> CheckHealth(CancellationToken ct = default)
     {
