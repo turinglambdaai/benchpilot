@@ -17,17 +17,19 @@ internal sealed class PowerTools
     public async Task<PowerOnResult> PowerOn(
         [Description("Supply voltage in volts, e.g. 12")] double voltage = 12,
         [Description("Settle window in milliseconds before reporting current")] int settleMs = 2000,
-        [Description("Semantic target id, e.g. 'radar'. Omit to use defaultTarget when allowed.")] string? target = null)
-        => await _client.PowerOn(voltage, settleMs, target, CancellationToken.None);
+        [Description("Semantic target id, e.g. 'radar'. Omit to use defaultTarget when allowed.")] string? target = null,
+        [Description("Optional Runtime execution deadline in milliseconds. Distinct from device-specific timeouts.")] int? deadlineMs = null)
+        => await _client.PowerOn(voltage, settleMs, target, deadlineMs, CancellationToken.None);
 
     [McpServerTool]
     [Description("Switch off the target's bench supply. This normal shutdown respects the target mutation gate and will not interrupt an active flash/reset.")]
     public async Task<PowerOffResult> PowerOff(
-        [Description("Semantic target id. Omit to use defaultTarget when allowed.")] string? target = null)
-        => await _client.PowerOff(target, CancellationToken.None);
+        [Description("Semantic target id. Omit to use defaultTarget when allowed.")] string? target = null,
+        [Description("Optional Runtime execution deadline in milliseconds.")] int? deadlineMs = null)
+        => await _client.PowerOff(target, deadlineMs, CancellationToken.None);
 
     [McpServerTool]
-    [Description("Emergency safety shutdown. Switch off target power even when another mutating operation is active. Once Runtime accepts this safety action it is not cancellable by the caller, and the action is recorded in operation history. Use only when leaving the bench energized is more dangerous than interrupting the active operation.")]
+    [Description("Emergency safety shutdown. Switch off target power even when another mutating operation is active. Once Runtime accepts this safety action it is not cancellable by the caller and has no Runtime deadline. Use only when leaving the bench energized is more dangerous than interrupting the active operation.")]
     public async Task<PowerOffResult> EmergencyPowerOff(
         [Description("Semantic target id. Omit to use defaultTarget when allowed.")] string? target = null)
         => await _client.EmergencyPowerOff(target, CancellationToken.None);
