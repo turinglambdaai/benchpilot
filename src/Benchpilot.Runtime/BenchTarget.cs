@@ -45,27 +45,29 @@ public sealed class BenchTarget
                 $"Requested voltage {voltage:0.###} V exceeds bench safety limit {maxVoltage:0.###} V.");
 
         var binding = BoundCapability<IPowerSupply>("power");
-        return await _runtime.RunMutation(Id, "power.on", [binding.ResourceId], async operationCt =>
+        var result = await _runtime.RunMutation(Id, "power.on", [binding.ResourceId], async operationCt =>
         {
-            var result = await binding.Capability.PowerOn(voltage, settleMs, operationCt);
+            var value = await binding.Capability.PowerOn(voltage, settleMs, operationCt);
 
-            if (result.Ok &&
+            if (value.Ok &&
                 _runtime.Profile.Safety.MaxCurrentMa is { } maxCurrentMa &&
-                result.CurrentMa > maxCurrentMa)
+                value.CurrentMa > maxCurrentMa)
             {
                 var off = await binding.Capability.PowerOff(CancellationToken.None);
                 var suffix = off.Ok ? "Power output was switched off." : "Power-off also reported an error.";
-                return result with
+                return value with
                 {
                     Ok = false,
                     Settled = false,
-                    Error = $"Measured current {result.CurrentMa:0.###} mA exceeds bench safety limit " +
+                    Error = $"Measured current {value.CurrentMa:0.###} mA exceeds bench safety limit " +
                         $"{maxCurrentMa:0.###} mA. {suffix}",
                 };
             }
 
-            return result;
+            return value;
         }, ct);
+        TargetContextEvidence.RecordPowerOn(_runtime, Id, result);
+        return result;
     }
 
     /// <summary>
@@ -73,15 +75,17 @@ public sealed class BenchTarget
     /// mutation gates so it cannot interrupt an active flash/reset or another
     /// target currently using the same physical power supply.
     /// </summary>
-    public Task<PowerOffResult> PowerOff(CancellationToken ct = default)
+    public async Task<PowerOffResult> PowerOff(CancellationToken ct = default)
     {
         var binding = BoundCapability<IPowerSupply>("power");
-        return _runtime.RunMutation(
+        var result = await _runtime.RunMutation(
             Id,
             "power.off",
             [binding.ResourceId],
             operationCt => binding.Capability.PowerOff(operationCt),
             ct);
+        TargetContextEvidence.RecordPowerOff(_runtime, Id, result);
+        return result;
     }
 
     /// <summary>
@@ -89,25 +93,29 @@ public sealed class BenchTarget
     /// cancelled by a disconnected caller after Runtime accepts it, and is
     /// always written to operation history for auditability.
     /// </summary>
-    public Task<PowerOffResult> EmergencyPowerOff(CancellationToken ct = default)
+    public async Task<PowerOffResult> EmergencyPowerOff(CancellationToken ct = default)
     {
         _ = ct; // Request cancellation must not abort an accepted safety action.
         var binding = BoundCapability<IPowerSupply>("power");
-        return _runtime.RunUngatedSafetyOperation(
+        var result = await _runtime.RunUngatedSafetyOperation(
             Id,
             "power.emergency-off",
             [binding.ResourceId],
             () => binding.Capability.PowerOff(CancellationToken.None));
+        TargetContextEvidence.RecordPowerOff(_runtime, Id, result, emergency: true);
+        return result;
     }
 
-    public Task<CurrentReading> ReadCurrent(int windowMs, CancellationToken ct = default)
+    public async Task<CurrentReading> ReadCurrent(int windowMs, CancellationToken ct = default)
     {
         if (windowMs <= 0)
             throw new BenchValidationException("Current sampling window must be greater than zero.");
-        return Capability<IPowerSupply>("power").ReadCurrent(windowMs, ct);
+        var result = await Capability<IPowerSupply>("power").ReadCurrent(windowMs, ct);
+        TargetContextEvidence.RecordCurrentReading(_runtime, Id, result);
+        return result;
     }
 
-    public Task<CurrentCheck> CheckCurrent(
+    public async Task<CurrentCheck> CheckCurrent(
         double? ltMa = null,
         double? gtMa = null,
         CancellationToken ct = default)
@@ -116,10 +124,12 @@ public sealed class BenchTarget
             throw new BenchValidationException("Current check requires at least one lt/gt threshold.");
         if (ltMa < 0 || gtMa < 0)
             throw new BenchValidationException("Current thresholds cannot be negative.");
-        return Capability<IPowerSupply>("power").CheckCurrent(ltMa, gtMa, ct);
+        var result = await Capability<IPowerSupply>("power").CheckCurrent(ltMa, gtMa, ct);
+        TargetContextEvidence.RecordCurrentCheck(_runtime, Id, result, ltMa, gtMa);
+        return result;
     }
 
-    public Task<FlashResult> Flash(
+    public async Task<FlashResult> Flash(
         string firmware,
         string? confirmTarget = null,
         CancellationToken ct = default)
@@ -129,7 +139,8 @@ public sealed class BenchTarget
         ValidateDestructiveConfirmation("flash", confirmTarget);
 
         var binding = BoundCapability<IFlashTarget>("flash");
-        return _runtime.RunMutation(
+        using var evidenceScope = TargetContextEvidence.BeginFailureScope(_runtime, Id, "flash.write");
+        return await _runtime.RunMutation(
             Id,
             "flash.write",
             [binding.ResourceId],
@@ -137,14 +148,15 @@ public sealed class BenchTarget
             ct);
     }
 
-    public Task<ResetResult> Reset(
+    public async Task<ResetResult> Reset(
         string? confirmTarget = null,
         CancellationToken ct = default)
     {
         ValidateDestructiveConfirmation("reset", confirmTarget);
 
         var binding = BoundCapability<IFlashTarget>("flash");
-        return _runtime.RunMutation(
+        using var evidenceScope = TargetContextEvidence.BeginFailureScope(_runtime, Id, "flash.reset");
+        return await _runtime.RunMutation(
             Id,
             "flash.reset",
             [binding.ResourceId],
@@ -210,13 +222,20 @@ public sealed class BenchTarget
                         CancellationToken.None);
                 }
 
-                return new ObservationExecution<SerialWaitResult>(
-                    identified,
+                IReadOnlyList<BenchEvidenceItem> evidence =
                     SerialObservationEvidenceExtractor.FromWait(
                         pattern,
                         timeoutMs,
                         identified,
-                        failureWindow));
+                        failureWindow);
+                if (!identified.Ok || !identified.Matched)
+                {
+                    evidence = evidence
+                        .Concat(TargetContextEvidence.Snapshot(_runtime, Id))
+                        .ToArray();
+                }
+
+                return new ObservationExecution<SerialWaitResult>(identified, evidence);
             },
             ct);
     }
