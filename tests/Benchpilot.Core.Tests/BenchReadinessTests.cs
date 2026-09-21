@@ -33,6 +33,29 @@ public class BenchReadinessTests
     }
 
     [Fact]
+    public async Task Advertised_capability_without_live_runtime_contract_blocks_readiness()
+    {
+        var profile = CreateProfile();
+        var registry = new BenchResourceRegistry(profile);
+        registry.Register("hw.ecu", new FlashOnlyHardwareResource());
+        using var runtime = new BenchRuntime(profile, registry);
+
+        var result = await runtime.ValidateTargetReadiness("ecu");
+
+        Assert.False(result.ReadyForRealEcuLoop);
+        Assert.True(Find(result, "runtime-capability.flash").Passed);
+
+        var power = Find(result, "runtime-capability.power");
+        Assert.False(power.Passed);
+        Assert.Equal(nameof(IPowerSupply), power.Details!["requiredContract"]);
+        Assert.Contains("do not advertise", power.Remediation, StringComparison.OrdinalIgnoreCase);
+
+        var serial = Find(result, "runtime-capability.serial");
+        Assert.False(serial.Passed);
+        Assert.Equal(nameof(ISerialChannel), serial.Details!["requiredContract"]);
+    }
+
+    [Fact]
     public async Task Simulator_backing_is_not_accepted_as_real_hardware_readiness()
     {
         using var runtime = CreateRuntime(CreateProfile(driver: "simulator"), healthOk: true);
@@ -202,5 +225,17 @@ public class BenchReadinessTests
 
         public Task<SerialSendResult> Send(string data, CancellationToken ct = default) =>
             Task.FromResult(new SerialSendResult(true));
+    }
+
+    private sealed class FlashOnlyHardwareResource : IFlashTarget, IResourceHealthCheck
+    {
+        public Task<ResourceHealthResult> CheckHealth(CancellationToken ct = default) =>
+            Task.FromResult(new ResourceHealthResult(true, "Flash-only fake hardware is reachable."));
+
+        public Task<FlashResult> Flash(string firmwarePath, CancellationToken ct = default) =>
+            Task.FromResult(new FlashResult(true, 1, 1));
+
+        public Task<ResetResult> Reset(CancellationToken ct = default) =>
+            Task.FromResult(new ResetResult(true));
     }
 }
