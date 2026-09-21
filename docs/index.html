@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BenchPilot — The hardware runtime for embedded coding agents</title>
+    <meta name="description" content="BenchPilot gives humans, CI jobs and AI coding agents one stateful interface to real embedded targets: power them, flash them, observe them, diagnose them and validate behavior.">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,500&display=swap" rel="stylesheet">
+    <script>document.documentElement.classList.add('js-anim')</script>
+    <style>
+        :root {
+            --accent: #D97706;
+            --accent-hover: #B45309;
+            --accent-soft: rgba(217, 119, 6, 0.15);
+            --accent-tint: rgba(217, 119, 6, 0.08);
+            --accent-bright: #FBBF24;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Nav -->
+    <nav class="nav-container">
+        <div class="nav-wrapper">
+            <div class="nav-brand">
+                <svg class="nav-logo" width="28" height="28" viewBox="0 0 512 512" fill="none">
+                    <rect width="512" height="512" rx="115" fill="#D97706"/>
+                    <rect x="120" y="150" width="272" height="170" rx="18" fill="none" stroke="#FFFFFF" stroke-width="30"/>
+                    <path d="M120 300 L200 300 L230 250 L280 350 L310 300 L392 300" fill="none" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M256 440 L256 380 M196 440 L316 440" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round"/>
+                </svg>
+                BenchPilot
+            </div>
+            <ul class="nav-menu">
+                <li><a href="#why" class="optional" data-en="Why" data-zh="为什么">Why</a></li>
+                <li><a href="#runtime" class="optional" data-en="Runtime" data-zh="运行时">Runtime</a></li>
+                <li><a href="#status" data-en="Status" data-zh="状态">Status</a></li>
+                <li><a href="https://github.com/turinglambdaai/benchpilot" class="optional">GitHub</a></li>
+                <li class="lang-dropdown-wrapper">
+                    <button class="lang-btn" onclick="void 0">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="2" y1="12" x2="22" y2="12"></line>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                        </svg>
+                        <span id="current-lang-label" data-en="English" data-zh="简体中文">English</span>
+                    </button>
+                    <ul class="lang-menu">
+                        <li onclick="setLanguage('en')">English</li>
+                        <li onclick="setLanguage('zh')">简体中文</li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero" id="overview">
+        <div class="container">
+            <span class="eyebrow animate-on-scroll" data-en="Open source · AGPL-3.0 · Focused on ECU development" data-zh="开源 · AGPL-3.0 · 聚焦 ECU 开发">Open source · AGPL-3.0 · Focused on ECU development</span>
+            <h1 class="animate-on-scroll">
+                <span data-en="The hardware runtime for" data-zh="面向嵌入式编码代理的">The hardware runtime for</span>
+                <span class="accent" data-en="embedded coding agents." data-zh="硬件运行时。">embedded coding agents.</span>
+            </h1>
+            <p class="lead animate-on-scroll"
+                data-en="BenchPilot gives humans, CI jobs and AI coding agents one stateful interface to real embedded targets: power them, flash them, observe them, diagnose them and validate behavior."
+                data-zh="BenchPilot 为人类、CI 任务和 AI 编码代理提供同一个有状态接口，直连真实嵌入式目标：上电、烧录、观察、诊断、验证行为。">
+                BenchPilot gives humans, CI jobs and AI coding agents one stateful interface to real embedded targets: power them, flash them, observe them, diagnose them and validate behavior.
+            </p>
+
+            <div class="hero-buttons animate-on-scroll">
+                <a href="https://github.com/turinglambdaai/benchpilot" class="btn btn-primary" data-en="View on GitHub" data-zh="在 GitHub 查看">View on GitHub</a>
+                <a href="#runtime" class="btn btn-secondary" data-en="How it works" data-zh="工作原理">How it works</a>
+            </div>
+
+            <div class="hero-visual animate-on-scroll">
+                <div class="code-window">
+                    <div class="window-header">
+                        <div class="window-controls">
+                            <div class="traffic-light close"></div>
+                            <div class="traffic-light minimize"></div>
+                            <div class="traffic-light maximize"></div>
+                        </div>
+                        <div class="window-title">benchpilot — session: radar</div>
+                    </div>
+                    <div class="code-body"><span class="prompt">$</span> <span class="cmd">benchpilot power on radar</span>
+  <span class="dim">psu.main</span>    <span class="dim">→</span> 12.0 V · 0.08 A          <span class="ok">✓</span>
+<span class="prompt">$</span> <span class="cmd">benchpilot flash radar firmware-latest.bin</span>
+  <span class="dim">probe.radar</span> <span class="dim">→</span> J-Link                   <span class="ok">✓ 1.8 s</span>
+<span class="prompt">$</span> <span class="cmd">benchpilot wait-signal radar RadarStatus RUNNING</span>
+  <span class="dim">uart.radar</span>  <span class="dim">→</span> <span class="str">"RadarStatus: RUNNING"</span>  <span class="ok">✓ 2.4 s</span>
+<span class="prompt">$</span> <span class="cmd">benchpilot assert-current radar --lt 100mA</span>
+  <span class="ok">✓ 92 mA</span>
+<span class="prompt">$</span> <span class="cmd">benchpilot capture-failure-window radar</span>
+  <span class="comment"># ring buffer saved: last 5 s of serial + CAN</span></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- The loop -->
+    <section id="loop" style="padding-top: 24px;">
+        <div class="container text-center">
+            <p class="animate-on-scroll" style="font-size: 15px; color: var(--text-2);">
+                <span data-en="The product loop is intentionally narrow —" data-zh="产品闭环刻意收窄——">The product loop is intentionally narrow —</span>
+            </p>
+            <div class="loop-diagram animate-on-scroll">
+                <div class="loop-step">Build</div>
+                <div class="loop-arrow">→</div>
+                <div class="loop-step hot">Flash</div>
+                <div class="loop-arrow">→</div>
+                <div class="loop-step">Run</div>
+                <div class="loop-arrow">→</div>
+                <div class="loop-step hot">Observe</div>
+                <div class="loop-arrow">→</div>
+                <div class="loop-step">Diagnose</div>
+                <div class="loop-arrow">→</div>
+                <div class="loop-step">Fix</div>
+            </div>
+            <p class="animate-on-scroll" style="font-size: 14px; color: var(--text-3); margin-top: 14px;"
+               data-en="Not a CANoe clone: CAN/CAN FD, DBC, ISO-TP, UDS and DoIP are added when they complete this loop — not for their own sake."
+               data-zh="不是 CANoe 的克隆：CAN/CAN FD、DBC、ISO-TP、UDS、DoIP 只在能补全这个闭环时才加入。">
+                Not a CANoe clone: CAN/CAN FD, DBC, ISO-TP, UDS and DoIP are added when they complete this loop — not for their own sake.
+            </p>
+        </div>
+    </section>
+
+    <!-- Why -->
+    <section id="why">
+        <div class="container">
+            <span class="eyebrow animate-on-scroll" data-en="Why BenchPilot" data-zh="为什么需要 BenchPilot">Why BenchPilot</span>
+            <h2 class="section-title animate-on-scroll">
+                <span data-en="Tools expose devices." data-zh="工具暴露的是设备，">Tools expose devices.</span>
+                <span class="accent" data-en="Agents need targets." data-zh="代理需要的是目标。">Agents need targets.</span>
+            </h2>
+            <p class="section-lead animate-on-scroll"
+                data-en="A coding agent can edit and build firmware, but a real ECU is surrounded by fragmented tools — J-Link, serial terminals, CAN adapters, SCPI supplies — each with device-centric primitives and independent state. BenchPilot adds the ECU-centric layer:"
+                data-zh="编码代理能改代码、能编译，但真实 ECU 周围是碎片化的工具——J-Link、串口终端、CAN 适配器、SCPI 电源——各自暴露设备级原语、各自维护状态。BenchPilot 在其上补一层以 ECU 为中心的抽象：">
+                A coding agent can edit and build firmware, but a real ECU is surrounded by fragmented tools with device-centric primitives and independent state. BenchPilot adds the ECU-centric layer:
+            </p>
+
+            <div class="arch-stack animate-on-scroll">
+                <div class="arch-row">
+                    <div class="arch-node core">Target: radar</div>
+                </div>
+                <div class="arch-connector">│</div>
+                <div class="arch-row">
+                    <div class="arch-node">power → psu.main</div>
+                    <div class="arch-node">flash → probe.radar</div>
+                    <div class="arch-node">serial → uart.radar</div>
+                    <div class="arch-node">can → can.vehicle</div>
+                </div>
+            </div>
+
+            <p class="section-lead animate-on-scroll" style="margin-top: 40px;"
+               data-en="The caller asks for the radar target and a semantic operation — flash, wait_boot, wait_signal, assert_current, capture_failure_window — instead of forcing a language model to consume unbounded raw serial/CAN streams."
+               data-zh="调用方只说「radar 这个目标」加一个语义操作——flash、wait_boot、wait_signal、assert_current、capture_failure_window——而不是让语言模型去消费无界的串口/CAN 原始流。">
+                The caller asks for the radar target and a semantic operation — flash, wait_boot, wait_signal, assert_current, capture_failure_window — instead of forcing a language model to consume unbounded raw serial/CAN streams.
+            </p>
+        </div>
+    </section>
+
+    <!-- Runtime -->
+    <section id="runtime">
+        <div class="container">
+            <span class="eyebrow animate-on-scroll" data-en="Runtime model" data-zh="运行时模型">Runtime model</span>
+            <h2 class="section-title animate-on-scroll">
+                <span data-en="Exactly one owner" data-zh="硬件状态只有一个">Exactly one owner</span>
+                <span class="accent" data-en="of live hardware state." data-zh="所有者。">of live hardware state.</span>
+            </h2>
+
+            <div class="arch-stack animate-on-scroll">
+                <div class="arch-row">
+                    <div class="arch-node">Human</div>
+                    <div class="arch-node">CI</div>
+                    <div class="arch-node">Agent (MCP)</div>
+                </div>
+                <div class="arch-connector">│</div>
+                <div class="arch-row">
+                    <div class="arch-node">CLI</div>
+                    <div class="arch-node">MCP adapter</div>
+                    <div class="arch-node">Studio</div>
+                </div>
+                <div class="arch-connector">│</div>
+                <div class="arch-row">
+                    <div class="arch-node">Benchpilot.Client</div>
+                </div>
+                <div class="arch-connector">│</div>
+                <div class="arch-row">
+                    <div class="arch-node">local /api/v1</div>
+                </div>
+                <div class="arch-connector">│</div>
+                <div class="arch-row">
+                    <div class="arch-node core">benchpilotd — state + safety</div>
+                </div>
+                <div class="arch-connector">│</div>
+                <div class="arch-row">
+                    <div class="arch-node hw">Power · SCPI</div>
+                    <div class="arch-node hw">Probe · J-Link</div>
+                    <div class="arch-node hw">Networks · SocketCAN / PCAN</div>
+                </div>
+                <div class="arch-connector">│</div>
+                <div class="arch-row">
+                    <div class="arch-node hw">ECU</div>
+                </div>
+            </div>
+
+            <div class="bento-grid" style="margin-top: 52px;">
+                <div class="bento-card animate-on-scroll">
+                    <div class="card-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    </div>
+                    <h3 data-en="One safety boundary" data-zh="统一安全边界">One safety boundary</h3>
+                    <p data-en="benchpilotd is the resident process. CLI, MCP and GUI clients must not open hardware independently — shared device state, one validation path, one place for resource locking and capture buffers."
+                       data-zh="benchpilotd 是常驻进程。CLI、MCP 与 GUI 客户端不得独立打开硬件——共享设备状态、统一校验路径，资源锁与捕获缓冲也只在这一处。">benchpilotd is the resident process. CLI, MCP and GUI clients must not open hardware independently.</p>
+                </div>
+                <div class="bento-card animate-on-scroll">
+                    <div class="card-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    </div>
+                    <h3 data-en="Loopback-only transport" data-zh="仅环回传输">Loopback-only transport</h3>
+                    <p data-en="The foundation transport is HTTP JSON bound to loopback only. benchpilotd refuses non-loopback binding until an authenticated remote-bench transport exists."
+                       data-zh="基础传输是仅绑定环回地址的 HTTP JSON。在带鉴权的远程 bench 传输出现之前，benchpilotd 拒绝非环回绑定。">The foundation transport is HTTP JSON bound to loopback only; benchpilotd refuses non-loopback binding until an authenticated remote-bench transport exists.</p>
+                </div>
+                <div class="bento-card animate-on-scroll">
+                    <div class="card-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    </div>
+                    <h3 data-en="Agent-first operations" data-zh="代理优先的操作面">Agent-first operations</h3>
+                    <p data-en="Semantic, bounded operations — wait_signal, assert_current, capture_failure_window — designed so a language model verifies behavior instead of parsing raw streams."
+                       data-zh="语义化、有边界的操作——wait_signal、assert_current、capture_failure_window——让语言模型去验证行为，而不是解析原始流。">Semantic, bounded operations designed so a language model verifies behavior instead of parsing raw streams.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Status -->
+    <section id="status">
+        <div class="container">
+            <span class="eyebrow animate-on-scroll" data-en="Current status" data-zh="当前状态">Current status</span>
+            <h2 class="section-title animate-on-scroll" data-en="Honest about where it is." data-zh="如实说明所处阶段。">Honest about where it is.</h2>
+
+            <div class="callout animate-on-scroll">
+                <strong data-en="Runtime foundation validated." data-zh="运行时基座已验证。">Runtime foundation validated.</strong>
+                <span data-en=" A resident Runtime, versioned local API, CLI and MCP adapter share one simulated power + serial + flash bench state. Windows/Linux builds and tests pass; CI executes the full resident-runtime CLI smoke loop. The next milestone is real hardware: serial + J-Link + SCPI."
+                      data-zh=" 常驻 Runtime、带版本号的本地 API、CLI 与 MCP 适配器共享同一套模拟的电源+串口+烧录 bench 状态。Windows/Linux 构建与测试通过，CI 跑完整的常驻运行时 CLI 冒烟回路。下一个里程碑是真实硬件：串口 + J-Link + SCPI。"> A resident Runtime, versioned local API, CLI and MCP adapter share one simulated bench state; the next milestone is real serial + J-Link + SCPI hardware.</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-content">
+            <div class="footer-brand">
+                <svg width="22" height="22" viewBox="0 0 512 512" fill="none">
+                    <rect width="512" height="512" rx="115" fill="#D97706"/>
+                    <rect x="120" y="150" width="272" height="170" rx="18" fill="none" stroke="#FFFFFF" stroke-width="30"/>
+                    <path d="M120 300 L200 300 L230 250 L280 350 L310 300 L392 300" fill="none" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M256 440 L256 380 M196 440 L316 440" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round"/>
+                </svg>
+                BenchPilot
+            </div>
+            <div class="footer-links">
+                <a href="https://github.com/turinglambdaai/benchpilot">GitHub</a>
+                <a href="https://github.com/turinglambdaai/benchpilot/blob/main/LICENSE">AGPL-3.0 License</a>
+            </div>
+            <div class="footer-note">© 2026 turinglambdaai</div>
+        </div>
+    </footer>
+
+    <script>
+        // Bilingual content: data-en / data-zh attributes, English default.
+        function setLanguage(lang) {
+            document.querySelectorAll('[data-en]').forEach(function (el) {
+                el.textContent = el.getAttribute('data-' + lang);
+            });
+            document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+            try { localStorage.setItem('site-lang', lang); } catch (e) { /* private mode */ }
+        }
+        try {
+            var saved = localStorage.getItem('site-lang');
+            if (saved && saved !== 'en') setLanguage(saved);
+        } catch (e) { /* private mode */ }
+
+        // Scroll-in animation.
+        var observer = new IntersectionObserver(function (entries) {
+            entries.forEach(function (entry) {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('is-visible');
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.12 });
+        document.querySelectorAll('.animate-on-scroll').forEach(function (el) { observer.observe(el); });
+    </script>
+</body>
+
+</html>
