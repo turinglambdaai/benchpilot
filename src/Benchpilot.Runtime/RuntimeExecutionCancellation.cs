@@ -13,7 +13,6 @@ internal sealed class RuntimeExecutionCancellation : IDisposable
     private const int CauseExplicit = 2;
     private const int CauseDeadline = 3;
 
-    private readonly CancellationToken _requestCancellation;
     private readonly CancellationTokenSource _explicitCancellation = new();
     private readonly CancellationTokenSource? _deadlineCancellation;
     private readonly CancellationTokenSource _linkedCancellation;
@@ -27,7 +26,6 @@ internal sealed class RuntimeExecutionCancellation : IDisposable
         int? deadlineMs,
         DateTimeOffset startedAtUtc)
     {
-        _requestCancellation = requestCancellation;
         DeadlineMs = deadlineMs;
         DeadlineAtUtc = deadlineMs is { } value
             ? startedAtUtc.AddMilliseconds(value)
@@ -62,7 +60,22 @@ internal sealed class RuntimeExecutionCancellation : IDisposable
     public int? DeadlineMs { get; }
     public DateTimeOffset? DeadlineAtUtc { get; }
     public CancellationToken Token => _linkedCancellation.Token;
-    public bool DeadlineExceeded => Volatile.Read(ref _cause) == CauseDeadline;
+
+    public bool DeadlineExceeded
+    {
+        get
+        {
+            // Timer callbacks can be scheduled a little after their nominal due
+            // time. If a driver ignores cancellation and returns after the wall
+            // clock deadline, claim the deadline cause here before accepting the
+            // result. A caller/explicit cancellation that already won remains the
+            // cause because MarkCause is compare-exchange based.
+            if (DeadlineAtUtc is { } deadlineAtUtc && DateTimeOffset.UtcNow >= deadlineAtUtc)
+                MarkCause(CauseDeadline);
+            return Volatile.Read(ref _cause) == CauseDeadline;
+        }
+    }
+
     public bool CancellationRequested => Volatile.Read(ref _cause) != CauseNone || Token.IsCancellationRequested;
 
     public bool RequestCancel()
