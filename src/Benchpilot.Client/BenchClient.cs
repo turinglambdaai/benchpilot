@@ -8,15 +8,27 @@ namespace Benchpilot.Client;
 
 public sealed class BenchClientException : Exception
 {
-    public BenchClientException(HttpStatusCode statusCode, string code, string message)
+    public BenchClientException(
+        HttpStatusCode statusCode,
+        string code,
+        string message,
+        string? operationId = null,
+        string? busyScope = null,
+        string? busyId = null)
         : base(message)
     {
         StatusCode = statusCode;
         Code = code;
+        OperationId = operationId;
+        BusyScope = busyScope;
+        BusyId = busyId;
     }
 
     public HttpStatusCode StatusCode { get; }
     public string Code { get; }
+    public string? OperationId { get; }
+    public string? BusyScope { get; }
+    public string? BusyId { get; }
 }
 
 /// <summary>
@@ -58,6 +70,21 @@ public sealed class BenchClient : IDisposable
 
     public Task<RuntimeStatusResult> Status(CancellationToken ct = default) =>
         Send<RuntimeStatusResult>(HttpMethod.Get, "api/v1/status", null, ct);
+
+    public Task<OperationListResult> Operations(CancellationToken ct = default) =>
+        Send<OperationListResult>(HttpMethod.Get, "api/v1/operations", null, ct);
+
+    public Task<OperationCancelResult> CancelOperation(
+        string operationId,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        return Send<OperationCancelResult>(
+            HttpMethod.Post,
+            $"api/v1/operations/{Uri.EscapeDataString(operationId)}/cancel",
+            null,
+            ct);
+    }
 
     public Task<TargetPreflightResult> Preflight(
         string? target = null,
@@ -178,7 +205,10 @@ public sealed class BenchClient : IDisposable
             throw new BenchClientException(
                 response.StatusCode,
                 apiError?.Code ?? "http_error",
-                apiError?.Error ?? $"BenchPilot runtime returned HTTP {(int)response.StatusCode}.");
+                apiError?.Error ?? $"BenchPilot runtime returned HTTP {(int)response.StatusCode}.",
+                apiError?.OperationId,
+                apiError?.BusyScope,
+                apiError?.BusyId);
         }
 
         var value = await response.Content.ReadFromJsonAsync<T>(JsonOptions, ct);
