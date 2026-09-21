@@ -223,6 +223,8 @@ public sealed class ObservationEvidenceTests
             _window = window;
         }
 
+        public bool IsOpen => true;
+
         public Task<SerialOpenResult> Open(string? port = null, int? baud = null, CancellationToken ct = default)
         {
             ct.ThrowIfCancellationRequested();
@@ -252,6 +254,8 @@ public sealed class ObservationEvidenceTests
     {
         public TaskCompletionSource<bool> Started { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool IsOpen => true;
 
         public Task<SerialOpenResult> Open(string? port = null, int? baud = null, CancellationToken ct = default) =>
             Task.FromResult(new SerialOpenResult(true, port ?? "TEST0", baud ?? 115200));
@@ -289,6 +293,8 @@ public sealed class ObservationEvidenceTests
     {
         public TaskCompletionSource<bool> Started { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool IsOpen => true;
 
         public Task<SerialOpenResult> Open(string? port = null, int? baud = null, CancellationToken ct = default) =>
             Task.FromResult(new SerialOpenResult(true, port ?? "TEST0", baud ?? 115200));
