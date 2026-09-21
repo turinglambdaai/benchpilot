@@ -21,6 +21,12 @@ internal sealed class OperationTools
         => await _client.Operations(CancellationToken.None);
 
     [McpServerTool]
+    [Description("List the bounded recent mutation audit from Runtime. Each record includes operation id, target, kind, physical resources, timestamps, duration, terminal execution state (completed/cancelled/faulted) and bounded fault text when present.")]
+    public async Task<OperationHistoryResult> ListOperationHistory(
+        [Description("Maximum number of newest records to return, from 1 to 128.")] int limit = 50)
+        => await _client.OperationHistory(limit, CancellationToken.None);
+
+    [McpServerTool]
     [Description("Request cooperative cancellation of one active bench operation by operation id. Use ListOperations first. Cancellation propagates into supported hardware drivers; the operation disappears after the driver exits and Runtime releases its locks.")]
     public async Task<OperationCancelResult> CancelOperation(
         [Description("Operation id returned by ListOperations or a busy error.")] string operationId)
