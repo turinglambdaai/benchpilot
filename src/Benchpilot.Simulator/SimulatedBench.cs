@@ -153,7 +153,7 @@ public sealed class SimulatedBench : IPowerSupply, ISerialChannel, IFlashTarget,
             foreach (var line in _console)
                 if (line.Text.Contains(pattern, StringComparison.OrdinalIgnoreCase))
                     return new SerialWaitResult(true, true, line.Text, (int)sw.ElapsedMilliseconds);
-            try { await Task.Delay(50, ct); } catch (OperationCanceledException) { break; }
+            await Task.Delay(50, ct);
         }
         return new SerialWaitResult(true, false, null, (int)sw.ElapsedMilliseconds);
     }
