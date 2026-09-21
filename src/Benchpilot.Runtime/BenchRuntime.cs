@@ -372,6 +372,58 @@ public sealed class BenchRuntime : IDisposable
         }
     }
 
+    /// <summary>
+    /// Runs a safety action without taking target/resource mutation gates. The
+    /// action is intentionally not cancellable once accepted, but it is still
+    /// assigned an operation id and written to the bounded audit history.
+    /// </summary>
+    internal async Task<T> RunUngatedSafetyOperation<T>(
+        string targetId,
+        string operation,
+        IReadOnlyCollection<string> resourceIds,
+        Func<Task<T>> action)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operation);
+        ArgumentNullException.ThrowIfNull(resourceIds);
+        ArgumentNullException.ThrowIfNull(action);
+
+        var normalizedResources = resourceIds
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var operationId = Guid.NewGuid().ToString("N");
+        var startedAt = DateTimeOffset.UtcNow;
+
+        try
+        {
+            var result = await action();
+            RecordOperation(
+                operationId,
+                targetId,
+                operation,
+                normalizedResources,
+                startedAt,
+                "completed",
+                null);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            RecordOperation(
+                operationId,
+                targetId,
+                operation,
+                normalizedResources,
+                startedAt,
+                "faulted",
+                BoundHistoryError(ex.Message));
+            throw;
+        }
+    }
+
     private BenchOperationInfo? FindOwner(string scope, string id)
     {
         foreach (var active in _activeOperations.Values)
@@ -393,18 +445,35 @@ public sealed class BenchRuntime : IDisposable
         return null;
     }
 
-    private void RecordOperation(ActiveMutation active, string state, string? error)
-    {
-        var completedAt = DateTimeOffset.UtcNow;
-        var durationMs = (int)Math.Min(
-            int.MaxValue,
-            Math.Max(0, (completedAt - active.StartedAtUtc).TotalMilliseconds));
-        var record = new BenchOperationRecord(
+    private void RecordOperation(ActiveMutation active, string state, string? error) =>
+        RecordOperation(
             active.Id,
             active.TargetId,
             active.Kind,
             active.ResourceIds,
             active.StartedAtUtc,
+            state,
+            error);
+
+    private void RecordOperation(
+        string operationId,
+        string targetId,
+        string kind,
+        IReadOnlyList<string> resourceIds,
+        DateTimeOffset startedAt,
+        string state,
+        string? error)
+    {
+        var completedAt = DateTimeOffset.UtcNow;
+        var durationMs = (int)Math.Min(
+            int.MaxValue,
+            Math.Max(0, (completedAt - startedAt).TotalMilliseconds));
+        var record = new BenchOperationRecord(
+            operationId,
+            targetId,
+            kind,
+            resourceIds,
+            startedAt,
             completedAt,
             durationMs,
             state,
@@ -620,12 +689,20 @@ public sealed class BenchTarget
     }
 
     /// <summary>
-    /// Explicit safety escape hatch. This is the only shell-facing power action
-    /// allowed to bypass mutation gates so an operator can de-energize a bench
-    /// during an unsafe condition even while another mutation is active.
+    /// Explicit safety escape hatch. It bypasses mutation gates, cannot be
+    /// cancelled by a disconnected caller after Runtime accepts it, and is
+    /// always written to operation history for auditability.
     /// </summary>
-    public Task<PowerOffResult> EmergencyPowerOff(CancellationToken ct = default) =>
-        Capability<IPowerSupply>("power").PowerOff(ct);
+    public Task<PowerOffResult> EmergencyPowerOff(CancellationToken ct = default)
+    {
+        _ = ct; // Request cancellation must not abort an accepted safety action.
+        var binding = BoundCapability<IPowerSupply>("power");
+        return _runtime.RunUngatedSafetyOperation(
+            Id,
+            "power.emergency-off",
+            [binding.ResourceId],
+            () => binding.Capability.PowerOff(CancellationToken.None));
+    }
 
     public Task<CurrentReading> ReadCurrent(int windowMs, CancellationToken ct = default)
     {

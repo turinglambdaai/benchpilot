@@ -27,7 +27,7 @@ internal sealed class PowerTools
         => await _client.PowerOff(target, CancellationToken.None);
 
     [McpServerTool]
-    [Description("Emergency safety shutdown. Switch off target power even when another mutating operation is active. Use only when leaving the bench energized is more dangerous than interrupting the active operation.")]
+    [Description("Emergency safety shutdown. Switch off target power even when another mutating operation is active. Once Runtime accepts this safety action it is not cancellable by the caller, and the action is recorded in operation history. Use only when leaving the bench energized is more dangerous than interrupting the active operation.")]
     public async Task<PowerOffResult> EmergencyPowerOff(
         [Description("Semantic target id. Omit to use defaultTarget when allowed.")] string? target = null)
         => await _client.EmergencyPowerOff(target, CancellationToken.None);
