@@ -27,7 +27,7 @@ public class BenchReadinessTests
         var result = await runtime.ValidateTargetReadiness("ecu");
 
         Assert.False(result.ReadyForRealEcuLoop);
-        var check = Assert.Single(result.Checks.Where(x => x.Code == "capability.flash"));
+        var check = Assert.Single(result.Checks, x => x.Code == "capability.flash");
         Assert.False(check.Passed);
         Assert.Contains("bindings.flash", check.Remediation, StringComparison.OrdinalIgnoreCase);
     }
@@ -64,7 +64,7 @@ public class BenchReadinessTests
 
         Assert.False(result.ReadyForRealEcuLoop);
         Assert.Equal("simulator", result.Mode);
-        var check = Assert.Single(result.Checks.Where(x => x.Code == "target.real-hardware"));
+        var check = Assert.Single(result.Checks, x => x.Code == "target.real-hardware");
         Assert.False(check.Passed);
         Assert.NotNull(check.Remediation);
     }
@@ -121,7 +121,7 @@ public class BenchReadinessTests
     }
 
     private static BenchReadinessCheck Find(TargetReadinessResult result, string code) =>
-        Assert.Single(result.Checks.Where(x => x.Code == code));
+        Assert.Single(result.Checks, x => x.Code == code);
 
     private static BenchRuntime CreateRuntime(BenchProfile profile, bool healthOk)
     {
