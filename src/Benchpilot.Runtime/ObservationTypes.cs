@@ -6,7 +6,9 @@ public sealed record BenchObservationInfo(
     string Kind,
     IReadOnlyList<string> ResourceIds,
     DateTimeOffset StartedAtUtc,
-    bool CancellationRequested);
+    DateTimeOffset? DeadlineAtUtc,
+    bool CancellationRequested,
+    bool DeadlineExceeded);
 
 public sealed record BenchObservationRecord(
     string Id,
@@ -16,6 +18,7 @@ public sealed record BenchObservationRecord(
     DateTimeOffset StartedAtUtc,
     DateTimeOffset CompletedAtUtc,
     int DurationMs,
+    DateTimeOffset? DeadlineAtUtc,
     string State,
     string? Error = null);
 
