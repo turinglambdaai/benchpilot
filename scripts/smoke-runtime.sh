@@ -42,6 +42,7 @@ cli() {
 
 cli status --json
 cli operations --json
+cli history --limit 10 --json
 cli preflight --json
 cli power on --voltage 12 --settle-ms 200 --json
 # No --port/--baud here: the shell must let the resource profile own device details.
@@ -52,5 +53,7 @@ cli operations --json
 cli serial wait Ready --timeout-ms 5000 --json
 cli power check --lt-ma 100 --json
 cli power off --json
+# Completed mutations remain available as a bounded Runtime audit trail.
+cli history --limit 10 --json
 
 echo "BenchPilot resident runtime smoke test passed."
