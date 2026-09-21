@@ -58,7 +58,7 @@ internal static class SerialObservationEvidenceExtractor
             items.Add(Item(
                 "serial.failure-window",
                 $"Recent serial context captured around an unmatched/failed wait ({window.Lines.Count} lines).",
-                string.Join('\n', window.Lines),
+                string.Join("\n", window.Lines),
                 new Dictionary<string, string>
                 {
                     ["lineCount"] = window.Lines.Count.ToString(CultureInfo.InvariantCulture),
@@ -82,7 +82,7 @@ internal static class SerialObservationEvidenceExtractor
             result.Ok
                 ? $"Serial window returned {result.Lines.Count} lines."
                 : "Serial window returned a device error.",
-            result.Ok ? string.Join('\n', result.Lines) : result.Error,
+            result.Ok ? string.Join("\n", result.Lines) : result.Error,
             new Dictionary<string, string>
             {
                 ["ok"] = Bool(result.Ok),
