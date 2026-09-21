@@ -25,79 +25,90 @@ public sealed record BenchOperationEvidence(
 /// </summary>
 internal static class OperationEvidenceExtractor
 {
-    public static IReadOnlyList<BenchEvidenceItem> FromResult(object? result) => result switch
+    public static IReadOnlyList<BenchEvidenceItem> FromResult(object? result)
     {
-        PowerOnResult value =>
-        [
-            Item(
-                "power.result",
-                value.Ok ? "Power-on completed." : "Power-on returned a device error.",
-                value.Error,
-                new Dictionary<string, string>
-                {
-                    ["ok"] = Bool(value.Ok),
-                    ["voltageV"] = Number(value.Voltage),
-                    ["currentMa"] = Number(value.CurrentMa),
-                    ["settled"] = Bool(value.Settled),
-                })
-        ],
-        PowerOffResult value =>
-        [
-            Item(
-                "power.result",
-                value.Ok ? "Power-off completed." : "Power-off returned a device error.",
-                value.Error,
-                new Dictionary<string, string>
-                {
-                    ["ok"] = Bool(value.Ok),
-                })
-        ],
-        FlashResult value =>
-        [
-            Item(
-                "flash.result",
-                value.Ok ? "Flash completed." : "Flash returned a device error.",
-                value.Error,
-                new Dictionary<string, string>
-                {
-                    ["ok"] = Bool(value.Ok),
-                    ["bytes"] = value.Bytes.ToString(CultureInfo.InvariantCulture),
-                    ["durationMs"] = value.DurationMs.ToString(CultureInfo.InvariantCulture),
-                })
-        ],
-        ResetResult value =>
-        [
-            Item(
-                "reset.result",
-                value.Ok ? "Reset completed." : "Reset returned a device error.",
-                value.Error,
-                new Dictionary<string, string>
-                {
-                    ["ok"] = Bool(value.Ok),
-                })
-        ],
-        _ =>
-        [
-            Item(
-                "operation.result",
-                result is null
-                    ? "Operation returned no result payload."
-                    : $"Operation returned {result.GetType().Name}.")
-        ],
-    };
+        IReadOnlyList<BenchEvidenceItem> primary = result switch
+        {
+            PowerOnResult value =>
+            [
+                Item(
+                    "power.result",
+                    value.Ok ? "Power-on completed." : "Power-on returned a device error.",
+                    value.Error,
+                    new Dictionary<string, string>
+                    {
+                        ["ok"] = Bool(value.Ok),
+                        ["voltageV"] = Number(value.Voltage),
+                        ["currentMa"] = Number(value.CurrentMa),
+                        ["settled"] = Bool(value.Settled),
+                    })
+            ],
+            PowerOffResult value =>
+            [
+                Item(
+                    "power.result",
+                    value.Ok ? "Power-off completed." : "Power-off returned a device error.",
+                    value.Error,
+                    new Dictionary<string, string>
+                    {
+                        ["ok"] = Bool(value.Ok),
+                    })
+            ],
+            FlashResult value =>
+            [
+                Item(
+                    "flash.result",
+                    value.Ok ? "Flash completed." : "Flash returned a device error.",
+                    value.Error,
+                    new Dictionary<string, string>
+                    {
+                        ["ok"] = Bool(value.Ok),
+                        ["bytes"] = value.Bytes.ToString(CultureInfo.InvariantCulture),
+                        ["durationMs"] = value.DurationMs.ToString(CultureInfo.InvariantCulture),
+                    })
+            ],
+            ResetResult value =>
+            [
+                Item(
+                    "reset.result",
+                    value.Ok ? "Reset completed." : "Reset returned a device error.",
+                    value.Error,
+                    new Dictionary<string, string>
+                    {
+                        ["ok"] = Bool(value.Ok),
+                    })
+            ],
+            _ =>
+            [
+                Item(
+                    "operation.result",
+                    result is null
+                        ? "Operation returned no result payload."
+                        : $"Operation returned {result.GetType().Name}.")
+            ],
+        };
+
+        return result switch
+        {
+            FlashResult { Ok: false } => TargetContextEvidence.AppendFailureContext(primary),
+            ResetResult { Ok: false } => TargetContextEvidence.AppendFailureContext(primary),
+            _ => primary,
+        };
+    }
 
     public static IReadOnlyList<BenchEvidenceItem> FromCancellation() =>
-    [
-        Item(
-            "runtime.cancelled",
-            "Operation was cancelled before normal completion.",
-            "Operation cancelled.")
-    ];
+        TargetContextEvidence.AppendFailureContext(
+        [
+            Item(
+                "runtime.cancelled",
+                "Operation was cancelled before normal completion.",
+                "Operation cancelled.")
+        ]);
 
     public static IReadOnlyList<BenchEvidenceItem> FromException(Exception exception)
     {
         ArgumentNullException.ThrowIfNull(exception);
-        return
+        return TargetContextEvidence.AppendFailureContext(
         [
             Item(
                 "runtime.exception",
@@ -107,7 +118,7 @@ internal static class OperationEvidenceExtractor
                 {
                     ["exceptionType"] = exception.GetType().Name,
                 })
-        ];
+        ]);
     }
 
     private static BenchEvidenceItem Item(
