@@ -122,6 +122,14 @@ internal static class BenchpilotCli
                     return result.Ok ? 0 : 4;
                 }
 
+                case ("bench", "validate"):
+                {
+                    var result = await client.ValidateTargetReadiness(target, cts.Token);
+                    Print(result, parsed.Json);
+                    if (!result.Ok) return 4;
+                    return result.ReadyForRealEcuLoop ? 0 : 1;
+                }
+
                 case ("power", "on"):
                 {
                     var voltage = parsed.GetDouble("voltage", 12);
@@ -299,6 +307,7 @@ Usage:
   benchpilot observe cancel <observation-id> [--json] [--endpoint URL]
 
   benchpilot preflight              [--target ID] [--json]
+  benchpilot bench validate         [--target ID] [--json]
 
   benchpilot power on            [--target ID] [--voltage V] [--settle-ms N] [--json]
   benchpilot power off           [--target ID] [--json]
@@ -327,6 +336,12 @@ serial line buffer, never the unbounded raw stream.
 `preflight` is non-destructive. It checks configured resource readiness without
 power-cycling, resetting or flashing the target.
 
+`bench validate` is also non-destructive. It combines required capability,
+hardware-vs-simulator, safety-policy, placeholder and resource-preflight checks
+into one machine-readable real-ECU readiness report with remediation guidance.
+Exit code 0 means ready; exit code 1 means the validation ran successfully but
+one or more readiness assertions failed.
+
 Normal `power off` participates in the target mutation gate and will return busy
 rather than interrupting an active flash/reset. `power emergency-off` is the
 explicit safety escape hatch and is allowed to bypass that gate.
@@ -342,8 +357,8 @@ Environment:
   BENCHPILOT_ENDPOINT   Runtime endpoint (default http://127.0.0.1:5640/)
 
 Exit codes:
-  0 success
-  1 operation/assertion failure or cancellation
+  0 success / readiness passed
+  1 operation/assertion/readiness failure or cancellation
   2 validation error
   3 target/resource/operation/observation/evidence not found
   4 runtime/device unavailable or device/preflight error
