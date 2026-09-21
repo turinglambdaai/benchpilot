@@ -35,3 +35,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: bash scripts/smoke-runtime.sh
+      - name: Graceful shutdown smoke
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: bash scripts/smoke-shutdown.sh

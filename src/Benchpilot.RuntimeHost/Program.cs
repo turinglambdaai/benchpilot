@@ -4,6 +4,7 @@ using Benchpilot.Drivers.ScpiPower;
 using Benchpilot.Drivers.Serial;
 using Benchpilot.Protocol;
 using Benchpilot.Runtime;
+using Benchpilot.RuntimeHost;
 using Benchpilot.Simulator;
 using Microsoft.AspNetCore.Hosting;
 
@@ -32,16 +33,54 @@ var drivers = new BenchDriverRegistry(new IBenchResourceFactory[]
     new JLinkResourceFactory(),
     new ScpiPowerResourceFactory(),
 });
+var runtime = drivers.CreateRuntime(profile);
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(endpoint.GetLeftPart(UriPartial.Authority));
 builder.Services.AddSingleton(profile);
 builder.Services.AddSingleton(drivers);
-builder.Services.AddSingleton(sp => drivers.CreateRuntime(profile));
+// Register the already-created instance so the host shutdown service, not the
+// DI container, owns the exact point at which hardware resources are released.
+builder.Services.AddSingleton(runtime);
+builder.Services.AddSingleton<RuntimeHostLifecycle>();
+builder.Services.AddHostedService<RuntimeShutdownService>();
 
 var app = builder.Build();
+var lifecycle = app.Services.GetRequiredService<RuntimeHostLifecycle>();
+app.Lifetime.ApplicationStopping.Register(lifecycle.BeginStopping);
 
-app.MapGet("/healthz", () => Results.Ok(new { ok = true }));
+// Once shutdown begins no new non-health request is admitted. Requests that
+// crossed this middleware immediately before ApplicationStopping remain counted
+// until their complete HTTP execution leaves the middleware, allowing shutdown
+// to wait even for work that has not yet registered an operation/observation.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/healthz"))
+    {
+        await next();
+        return;
+    }
+
+    if (!lifecycle.TryEnterRequest(out var requestLease))
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        await context.Response.WriteAsJsonAsync(new ApiError(
+            false,
+            "runtime_stopping",
+            "BenchPilot Runtime is stopping and is not accepting new work."));
+        return;
+    }
+
+    using (requestLease)
+        await next();
+});
+
+app.MapGet("/healthz", () =>
+    lifecycle.IsStopping
+        ? Results.Json(
+            new { ok = false, state = "stopping" },
+            statusCode: StatusCodes.Status503ServiceUnavailable)
+        : Results.Ok(new { ok = true, state = "running" }));
 
 app.MapGet($"{BenchpilotApi.Prefix}/status", (BenchRuntime runtime) =>
 {

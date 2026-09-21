@@ -2,7 +2,7 @@
 
 BenchPilot is developed as an **agent-native ECU development runtime**, not as a feature-for-feature CANoe replacement.
 
-The roadmap prioritizes one complete real-ECU loop over broad protocol coverage. The current gate is **physical bench validation and bounded failure evidence**, not adding more protocols.
+The roadmap prioritizes one complete real-ECU loop over broad protocol coverage. The current gate is **physical bench validation and cross-operation failure evidence**, not adding more protocols.
 
 ## Foundation — complete
 
@@ -47,18 +47,22 @@ These are now Runtime properties shared by CLI, MCP and future Studio clients, r
 - [x] cooperative cancellation through Runtime into supported drivers;
 - [x] busy responses identify the owning operation when available;
 - [x] bounded in-memory operation history with `completed` / `cancelled` / `faulted` execution states;
+- [x] bounded mutation evidence keyed by operation ID;
+- [x] non-mutating observation IDs/history/cancellation/evidence for serial operations;
+- [x] bounded serial failure windows sourced from the driver's local line buffer;
 - [x] explicit normal shutdown versus emergency shutdown semantics;
 - [x] emergency power-off bypasses mutation gates, is non-cancellable once accepted, and is audited;
 - [x] destructive flash/reset confirmation policy;
 - [x] maximum voltage/current bench safety enforcement;
 - [x] stable validation / not-found / busy / cancelled / runtime-state API error classes;
+- [x] graceful host shutdown requests cancellation and drains Runtime-owned active work before releasing hardware resources;
 
 Still intentionally incomplete:
 
 - [ ] richer device/runtime error taxonomy for vendor-specific failures without leaking vendor SDK types into Core;
 - [ ] one Runtime-level deadline/timeout model across all long operations (drivers already enforce bounded device timeouts where required);
-- [ ] bounded failure-window evidence/artifact store tied to operation IDs;
-- [ ] graceful Runtime shutdown that waits for cancelled in-flight hardware operations to unwind before disposing shared resources;
+- [ ] cross-operation evidence correlation, especially power/current context around flash/boot failures;
+- [ ] persistent evidence/artifact storage beyond the current bounded in-memory Runtime stores;
 - [ ] remote/team leases — local mutation locks are **not** a substitute for authenticated remote ownership.
 
 ## Real bench vertical slice — in progress
@@ -90,7 +94,9 @@ Serial design:
 - port/baud live in the resource profile by default;
 - CLI/MCP port/baud values are optional expert overrides;
 - one resident OS serial handle is owned by `benchpilotd`;
-- raw input is converted into a bounded line buffer for `wait`/`window` observations.
+- raw input is converted into a bounded line buffer for `wait`/`window` observations;
+- serial observations carry stable observation IDs and bounded evidence without taking mutation locks;
+- an unmatched/failed wait captures only a small recent line window rather than an unbounded stream.
 
 J-Link design:
 
@@ -110,16 +116,18 @@ SCPI power design:
 - device timeout and user/operation cancellation are distinguished;
 - explicit emergency shutdown is the only shell-facing path allowed to bypass target/resource locks.
 
-### Next implementation gate: failure evidence
+### Failure evidence — foundation complete, correlation next
 
-Before CAN/UDS, make failures explainable to an Agent without dumping unbounded raw logs.
+The Runtime now makes individual failures explainable to an Agent without dumping unbounded raw logs.
 
-- [ ] bounded evidence model keyed by operation ID;
-- [ ] capture the final bounded J-Link stdout/stderr window for failed flash/reset operations;
-- [ ] capture bounded UART lines around boot/wait failures;
-- [ ] capture relevant power/current measurements around power/flash failures;
-- [ ] CLI/MCP query for an operation's evidence;
-- [ ] preserve strict size/count limits so evidence remains LLM-context friendly.
+- [x] bounded evidence model keyed by mutation operation ID;
+- [x] final bounded J-Link stdout/stderr context flows through failed flash/reset evidence;
+- [x] bounded UART lines around unmatched/failed waits;
+- [x] CLI/MCP query for mutation evidence;
+- [x] observation IDs/history/evidence and CLI/MCP query for UART observations;
+- [x] strict size/count limits so evidence remains LLM-context friendly;
+- [ ] correlate relevant voltage/current observations with a flash/boot failure window;
+- [ ] define artifact references for larger evidence that must stay out of LLM context.
 
 Real-bench exit criterion:
 
@@ -200,7 +208,7 @@ First useful screens:
 - [ ] Console;
 - [ ] CAN signals/capture;
 - [ ] Diagnostics;
-- [ ] Run/Agent timeline backed by Runtime active-operation + history/evidence APIs.
+- [ ] Run/Agent timeline backed by Runtime operation + observation history/evidence APIs.
 
 GUI technology is deliberately decoupled. Avalonia is the conservative default; a Racket/Glaze frontend remains viable only if it proves a concrete productivity or UX advantage over the stable Runtime API.
 
