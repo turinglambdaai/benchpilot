@@ -86,6 +86,32 @@ app.MapGet($"{BenchpilotApi.Prefix}/operations", (BenchRuntime runtime) =>
     return Results.Json(new OperationListResult(true, operations));
 });
 
+app.MapGet($"{BenchpilotApi.Prefix}/operations/history", (
+    int? limit,
+    BenchRuntime runtime) =>
+{
+    try
+    {
+        var operations = runtime.RecentOperations(limit ?? 50)
+            .Select(x => new OperationHistorySummary(
+                x.Id,
+                x.TargetId,
+                x.Kind,
+                x.ResourceIds,
+                x.StartedAtUtc,
+                x.CompletedAtUtc,
+                x.DurationMs,
+                x.State,
+                x.Error))
+            .ToArray();
+        return Results.Json(new OperationHistoryResult(true, operations));
+    }
+    catch (BenchValidationException ex)
+    {
+        return Results.BadRequest(new ApiError(false, "validation", ex.Message));
+    }
+});
+
 app.MapPost($"{BenchpilotApi.Prefix}/operations/{{operationId}}/cancel", (
     string operationId,
     BenchRuntime runtime) =>

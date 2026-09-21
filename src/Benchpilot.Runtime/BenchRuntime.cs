@@ -86,6 +86,17 @@ public sealed record BenchOperationInfo(
     DateTimeOffset StartedAtUtc,
     bool CancellationRequested);
 
+public sealed record BenchOperationRecord(
+    string Id,
+    string TargetId,
+    string Kind,
+    IReadOnlyList<string> ResourceIds,
+    DateTimeOffset StartedAtUtc,
+    DateTimeOffset CompletedAtUtc,
+    int DurationMs,
+    string State,
+    string? Error = null);
+
 /// <summary>
 /// Owns live resource instances for one bench process. Device handles are
 /// registered once and reused so all shells observe the same state. The
@@ -175,10 +186,15 @@ public sealed class BenchResourceRegistry : IDisposable
 /// </summary>
 public sealed class BenchRuntime : IDisposable
 {
+    private const int OperationHistoryCapacity = 128;
+    private const int MaxHistoryErrorLength = 1000;
+
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _mutationGates =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ActiveMutation> _activeOperations =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _historySync = new();
+    private readonly Queue<BenchOperationRecord> _operationHistory = new();
     private bool _disposed;
 
     public BenchProfile Profile { get; }
@@ -200,6 +216,22 @@ public sealed class BenchRuntime : IDisposable
                 .Select(x => x.Snapshot())
                 .OrderBy(x => x.StartedAtUtc)
                 .ThenBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+    }
+
+    public IReadOnlyList<BenchOperationRecord> RecentOperations(int limit = 50)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (limit is < 1 or > OperationHistoryCapacity)
+            throw new BenchValidationException(
+                $"Operation history limit must be between 1 and {OperationHistoryCapacity}.");
+
+        lock (_historySync)
+        {
+            return _operationHistory
+                .Reverse()
+                .Take(limit)
                 .ToArray();
         }
     }
@@ -310,7 +342,22 @@ public sealed class BenchRuntime : IDisposable
             if (!_activeOperations.TryAdd(operationId, active))
                 throw new InvalidOperationException($"Could not register active operation '{operationId}'.");
 
-            return await action(active.Token);
+            try
+            {
+                var result = await action(active.Token);
+                RecordOperation(active, "completed", null);
+                return result;
+            }
+            catch (OperationCanceledException)
+            {
+                RecordOperation(active, "cancelled", "Operation cancelled.");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                RecordOperation(active, "faulted", BoundHistoryError(ex.Message));
+                throw;
+            }
         }
         finally
         {
@@ -344,6 +391,39 @@ public sealed class BenchRuntime : IDisposable
         }
 
         return null;
+    }
+
+    private void RecordOperation(ActiveMutation active, string state, string? error)
+    {
+        var completedAt = DateTimeOffset.UtcNow;
+        var durationMs = (int)Math.Min(
+            int.MaxValue,
+            Math.Max(0, (completedAt - active.StartedAtUtc).TotalMilliseconds));
+        var record = new BenchOperationRecord(
+            active.Id,
+            active.TargetId,
+            active.Kind,
+            active.ResourceIds,
+            active.StartedAtUtc,
+            completedAt,
+            durationMs,
+            state,
+            error);
+
+        lock (_historySync)
+        {
+            _operationHistory.Enqueue(record);
+            while (_operationHistory.Count > OperationHistoryCapacity)
+                _operationHistory.Dequeue();
+        }
+    }
+
+    private static string? BoundHistoryError(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return value;
+        return value.Length <= MaxHistoryErrorLength
+            ? value
+            : value[..MaxHistoryErrorLength];
     }
 
     public void Dispose()
@@ -423,14 +503,24 @@ public sealed class BenchRuntime : IDisposable
 
         public bool RequestCancel()
         {
+            CancellationTokenSource? cancellation;
             lock (_sync)
             {
                 if (_cancellation is null)
                     return false;
 
                 _cancellationRequested = true;
-                _cancellation.Cancel();
+                cancellation = _cancellation;
+            }
+
+            try
+            {
+                cancellation.Cancel();
                 return true;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
             }
         }
 

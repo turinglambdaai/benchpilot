@@ -60,6 +60,14 @@ internal static class BenchpilotCli
                     return result.Ok ? 0 : 1;
                 }
 
+                case ("history", _):
+                {
+                    var limit = parsed.GetInt("limit", 50);
+                    var result = await client.OperationHistory(limit, cts.Token);
+                    Print(result, parsed.Json);
+                    return result.Ok ? 0 : 1;
+                }
+
                 case ("cancel", _):
                 {
                     var operationId = RequirePositional(parsed, 1, "operation id");
@@ -242,6 +250,7 @@ BenchPilot CLI - client for the resident ECU bench runtime
 Usage:
   benchpilot status                [--json] [--endpoint URL]
   benchpilot operations            [--json] [--endpoint URL]
+  benchpilot history               [--limit N] [--json] [--endpoint URL]
   benchpilot cancel <operation-id> [--json] [--endpoint URL]
   benchpilot preflight             [--target ID] [--json]
 
@@ -262,6 +271,11 @@ Usage:
 `operations` lists active target mutations with operation id, target, kind,
 physical resources and cancellation state. `cancel` requests cancellation of
 one active operation; completion remains driver/cooperative-cancellation based.
+
+`history` returns the Runtime's bounded recent mutation audit. States describe
+execution transport: completed means the call returned normally, cancelled means
+cancellation propagated, and faulted means the operation threw an exception.
+The business result may still carry ok=false for a normally returned device error.
 
 `preflight` is non-destructive. It checks configured resource readiness without
 power-cycling, resetting or flashing the target.

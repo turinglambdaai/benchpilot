@@ -54,6 +54,22 @@ public record OperationCancelResult(
     bool CancelRequested,
     string? Error = null);
 
+public record OperationHistorySummary(
+    string Id,
+    string TargetId,
+    string Kind,
+    IReadOnlyList<string> ResourceIds,
+    DateTimeOffset StartedAtUtc,
+    DateTimeOffset CompletedAtUtc,
+    int DurationMs,
+    string State,
+    string? Error = null);
+
+public record OperationHistoryResult(
+    bool Ok,
+    IReadOnlyList<OperationHistorySummary> Operations,
+    string? Error = null);
+
 public record PowerOnRequest(double Voltage = 12, int SettleMs = 2000);
 public record CurrentReadRequest(int WindowMs = 500);
 public record CurrentCheckRequest(double? LtMa = null, double? GtMa = null);
