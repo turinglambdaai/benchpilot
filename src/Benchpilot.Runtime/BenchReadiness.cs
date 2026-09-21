@@ -52,6 +52,31 @@ public static class BenchReadiness
                     ? null
                     : $"Add a '{capability}' resource and bind targets.{target.Id}.bindings.{capability} to that resource.",
                 details));
+
+            if (present)
+            {
+                var binding = ProfileLoader.ResolveResource(runtime.Profile, capability, target.Id);
+                var live = runtime.Resources.Get<object>(binding.ResourceId);
+                var (implemented, contract) = ImplementsLiveCapability(capability, live);
+                checks.Add(new BenchReadinessCheck(
+                    $"runtime-capability.{capability}",
+                    implemented,
+                    "error",
+                    implemented
+                        ? $"Live resource '{binding.ResourceId}' implements the Runtime contract for '{capability}'."
+                        : $"Resource '{binding.ResourceId}' advertises '{capability}' but its live driver object does not implement {contract}.",
+                    implemented
+                        ? null
+                        : $"Fix resource '{binding.ResourceId}' driver/capabilities so '{capability}' is provided by a driver implementing {contract}; do not advertise capabilities the live driver cannot execute.",
+                    new Dictionary<string, string>
+                    {
+                        ["capability"] = capability,
+                        ["resourceId"] = binding.ResourceId,
+                        ["driver"] = binding.Resource.Driver,
+                        ["requiredContract"] = contract,
+                        ["actualType"] = live.GetType().Name,
+                    }));
+            }
         }
 
         var mode = DetermineMode(boundRequiredResources.Values);
@@ -166,6 +191,16 @@ public static class BenchReadiness
             checks,
             preflight);
     }
+
+    private static (bool Implemented, string Contract) ImplementsLiveCapability(
+        string capability,
+        object live) => capability.ToLowerInvariant() switch
+        {
+            "power" => (live is IPowerSupply, nameof(IPowerSupply)),
+            "serial" => (live is ISerialChannel, nameof(ISerialChannel)),
+            "flash" => (live is IFlashTarget, nameof(IFlashTarget)),
+            _ => (false, "unknown Runtime capability contract"),
+        };
 
     private static BenchReadinessCheck SafetyValueCheck(
         string code,
