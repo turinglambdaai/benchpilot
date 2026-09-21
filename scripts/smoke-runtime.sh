@@ -82,15 +82,28 @@ cli evidence "$latest_operation_id" --json
 cli serial wait Ready --timeout-ms 5000 --json
 
 # An unmatched wait is an assertion-style failure (exit 1), not a device error.
-# It must still create bounded observation history/evidence containing a small
-# recent serial context window.
+# It must create bounded UART failure evidence and automatically correlate the
+# already-recorded target power/current context without performing new I/O.
 if cli serial wait __BENCHPILOT_NEVER_MATCH__ --timeout-ms 50 --json; then
   echo "expected unmatched serial wait to return non-zero" >&2
   exit 1
 fi
 cli observe list --json
 latest_observation_id="$(cli observe history --limit 1 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["observations"][0]["id"])')"
-cli observe evidence "$latest_observation_id" --json
+observation_evidence="$(cli observe evidence "$latest_observation_id" --json)"
+printf '%s\n' "$observation_evidence"
+printf '%s' "$observation_evidence" | python3 -c '
+import json,sys
+r=json.load(sys.stdin)
+kinds=[item["kind"] for item in r["items"]]
+assert "serial.wait" in kinds
+assert "serial.failure-window" in kinds
+assert "context.power-on" in kinds
+ctx=next(item for item in r["items"] if item["kind"] == "context.power-on")
+assert ctx["metadata"]["voltageV"] == "12"
+assert "capturedAtUtc" in ctx["metadata"]
+assert "ageMs" in ctx["metadata"]
+'
 
 cli power check --lt-ma 100 --json
 cli power off --json
