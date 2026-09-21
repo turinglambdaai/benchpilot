@@ -148,6 +148,11 @@ public sealed class BenchClient : IDisposable
         CancellationToken ct = default) =>
         Send<TargetPreflightResult>(HttpMethod.Post, WithTarget("api/v1/preflight", target), null, ct);
 
+    public Task<TargetReadinessResult> ValidateTargetReadiness(
+        string? target = null,
+        CancellationToken ct = default) =>
+        Send<TargetReadinessResult>(HttpMethod.Post, WithTarget("api/v1/validate", target), null, ct);
+
     public Task<PowerOnResult> PowerOn(
         double voltage,
         int settleMs,
