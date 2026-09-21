@@ -197,7 +197,7 @@ public sealed class RuntimeDeadlineTests
             CancellationToken ct = default)
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, ct);
-            throw new UnreachableException();
+            throw new InvalidOperationException("Unreachable after infinite cancellable delay.");
         }
 
         public override async Task<SerialWaitResult> WaitFor(
@@ -206,7 +206,7 @@ public sealed class RuntimeDeadlineTests
             CancellationToken ct = default)
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, ct);
-            throw new UnreachableException();
+            throw new InvalidOperationException("Unreachable after infinite cancellable delay.");
         }
     }
 
