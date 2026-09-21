@@ -70,6 +70,22 @@ public record OperationHistoryResult(
     IReadOnlyList<OperationHistorySummary> Operations,
     string? Error = null);
 
+public record EvidenceItemSummary(
+    string Kind,
+    string Summary,
+    string? Text = null,
+    IReadOnlyDictionary<string, string>? Metadata = null);
+
+public record OperationEvidenceResult(
+    bool Ok,
+    string OperationId,
+    string TargetId,
+    string OperationKind,
+    IReadOnlyList<string> ResourceIds,
+    DateTimeOffset CreatedAtUtc,
+    IReadOnlyList<EvidenceItemSummary> Items,
+    string? Error = null);
+
 public record PowerOnRequest(double Voltage = 12, int SettleMs = 2000);
 public record CurrentReadRequest(int WindowMs = 500);
 public record CurrentCheckRequest(double? LtMa = null, double? GtMa = null);
