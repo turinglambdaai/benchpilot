@@ -84,6 +84,37 @@ internal static class BenchpilotCli
                     return result.Ok && result.CancelRequested ? 0 : 1;
                 }
 
+                case ("observe", "list"):
+                {
+                    var result = await client.Observations(cts.Token);
+                    Print(result, parsed.Json);
+                    return result.Ok ? 0 : 1;
+                }
+
+                case ("observe", "history"):
+                {
+                    var limit = parsed.GetInt("limit", 50);
+                    var result = await client.ObservationHistory(limit, cts.Token);
+                    Print(result, parsed.Json);
+                    return result.Ok ? 0 : 1;
+                }
+
+                case ("observe", "evidence"):
+                {
+                    var observationId = RequirePositional(parsed, 2, "observation id");
+                    var result = await client.ObservationEvidence(observationId, cts.Token);
+                    Print(result, parsed.Json);
+                    return result.Ok ? 0 : 1;
+                }
+
+                case ("observe", "cancel"):
+                {
+                    var observationId = RequirePositional(parsed, 2, "observation id");
+                    var result = await client.CancelObservation(observationId, cts.Token);
+                    Print(result, parsed.Json);
+                    return result.Ok && result.CancelRequested ? 0 : 1;
+                }
+
                 case ("preflight", _):
                 {
                     var result = await client.Preflight(target, cts.Token);
@@ -219,7 +250,7 @@ internal static class BenchpilotCli
         }
         catch (OperationCanceledException)
         {
-            Print(new ApiError(false, "cancelled", "Operation cancelled."), parsed.Json);
+            Print(new ApiError(false, "cancelled", "Request cancelled."), parsed.Json);
             return 1;
         }
         catch (ArgumentException ex)
@@ -256,11 +287,17 @@ internal static class BenchpilotCli
 BenchPilot CLI - client for the resident ECU bench runtime
 
 Usage:
-  benchpilot status                 [--json] [--endpoint URL]
-  benchpilot operations             [--json] [--endpoint URL]
-  benchpilot history                [--limit N] [--json] [--endpoint URL]
+  benchpilot status                  [--json] [--endpoint URL]
+  benchpilot operations              [--json] [--endpoint URL]
+  benchpilot history                 [--limit N] [--json] [--endpoint URL]
   benchpilot evidence <operation-id> [--json] [--endpoint URL]
-  benchpilot cancel <operation-id>  [--json] [--endpoint URL]
+  benchpilot cancel <operation-id>   [--json] [--endpoint URL]
+
+  benchpilot observe list                    [--json] [--endpoint URL]
+  benchpilot observe history                 [--limit N] [--json] [--endpoint URL]
+  benchpilot observe evidence <observation-id> [--json] [--endpoint URL]
+  benchpilot observe cancel <observation-id> [--json] [--endpoint URL]
+
   benchpilot preflight              [--target ID] [--json]
 
   benchpilot power on            [--target ID] [--voltage V] [--settle-ms N] [--json]
@@ -277,18 +314,15 @@ Usage:
   benchpilot serial window          [--target ID] [--lines N] [--filter TEXT] [--json]
   benchpilot serial send <data>     [--target ID] [--json]
 
-`operations` lists active target mutations with operation id, target, kind,
-physical resources and cancellation state. `cancel` requests cancellation of
-one active operation; completion remains driver/cooperative-cancellation based.
+Mutating operations and observations are intentionally separate. `operations`
+uses target/resource gates for state-changing work. `observe ...` reports
+non-mutating serial observations that may run concurrently with flash/power.
 
-`history` returns the Runtime's bounded recent mutation audit. States describe
-execution transport: completed means the call returned normally, cancelled means
-cancellation propagated, and faulted means the operation threw an exception.
-The business result may still carry ok=false for a normally returned device error.
-
-`evidence` returns a compact evidence bundle for one terminal mutation. Driver
-raw diagnostics must already be bounded before entering Runtime; evidence applies
-additional item/text/metadata limits so the result stays Agent-context friendly.
+`history` returns the Runtime's bounded mutation audit. `evidence` returns one
+compact mutation evidence bundle. `observe history/evidence` provide the same
+bounded correlation for serial observations without converting them into locks.
+A failed/unmatched serial wait captures only a small tail of the Runtime-owned
+serial line buffer, never the unbounded raw stream.
 
 `preflight` is non-destructive. It checks configured resource readiness without
 power-cycling, resetting or flashing the target.
@@ -298,7 +332,8 @@ rather than interrupting an active flash/reset. `power emergency-off` is the
 explicit safety escape hatch and is allowed to bypass that gate.
 
 `serial open` normally uses port/baud from the target resource profile. --port and
---baud are optional expert/debug overrides.
+--baud are optional expert/debug overrides. Serial results include observationId
+for later `observe evidence` lookup.
 
 When safety.requireDestructiveConfirmation is enabled, flash/reset require
 --confirm-target to exactly match the resolved semantic target id.
@@ -310,7 +345,7 @@ Exit codes:
   0 success
   1 operation/assertion failure or cancellation
   2 validation error
-  3 target/resource/operation/evidence not found
+  3 target/resource/operation/observation/evidence not found
   4 runtime/device unavailable or device/preflight error
   5 target/resource busy (another mutating operation is active)
 """);
