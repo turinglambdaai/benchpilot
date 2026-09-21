@@ -53,6 +53,21 @@ internal static class BenchpilotCli
                     return result.Ok ? 0 : 1;
                 }
 
+                case ("operations", _):
+                {
+                    var result = await client.Operations(cts.Token);
+                    Print(result, parsed.Json);
+                    return result.Ok ? 0 : 1;
+                }
+
+                case ("cancel", _):
+                {
+                    var operationId = RequirePositional(parsed, 1, "operation id");
+                    var result = await client.CancelOperation(operationId, cts.Token);
+                    Print(result, parsed.Json);
+                    return result.Ok && result.CancelRequested ? 0 : 1;
+                }
+
                 case ("preflight", _):
                 {
                     var result = await client.Preflight(target, cts.Token);
@@ -161,10 +176,17 @@ internal static class BenchpilotCli
         }
         catch (BenchClientException ex)
         {
-            Print(new ApiError(false, ex.Code, ex.Message), parsed.Json);
+            Print(new ApiError(
+                false,
+                ex.Code,
+                ex.Message,
+                ex.OperationId,
+                ex.BusyScope,
+                ex.BusyId), parsed.Json);
             return ex.Code switch
             {
                 "busy" => 5,
+                "cancelled" => 1,
                 "runtime_state" => 4,
                 _ => ex.StatusCode switch
                 {
@@ -218,8 +240,10 @@ internal static class BenchpilotCli
 BenchPilot CLI - client for the resident ECU bench runtime
 
 Usage:
-  benchpilot status    [--json] [--endpoint URL]
-  benchpilot preflight [--target ID] [--json]
+  benchpilot status                [--json] [--endpoint URL]
+  benchpilot operations            [--json] [--endpoint URL]
+  benchpilot cancel <operation-id> [--json] [--endpoint URL]
+  benchpilot preflight             [--target ID] [--json]
 
   benchpilot power on            [--target ID] [--voltage V] [--settle-ms N] [--json]
   benchpilot power off           [--target ID] [--json]
@@ -234,6 +258,10 @@ Usage:
   benchpilot serial wait <pattern>  [--target ID] [--timeout-ms N] [--json]
   benchpilot serial window          [--target ID] [--lines N] [--filter TEXT] [--json]
   benchpilot serial send <data>     [--target ID] [--json]
+
+`operations` lists active target mutations with operation id, target, kind,
+physical resources and cancellation state. `cancel` requests cancellation of
+one active operation; completion remains driver/cooperative-cancellation based.
 
 `preflight` is non-destructive. It checks configured resource readiness without
 power-cycling, resetting or flashing the target.
@@ -253,11 +281,11 @@ Environment:
 
 Exit codes:
   0 success
-  1 operation/assertion failure
+  1 operation/assertion failure or cancellation
   2 validation error
-  3 target/resource not found
+  3 target/resource/operation not found
   4 runtime/device unavailable or device/preflight error
-  5 target busy (another mutating operation is active)
+  5 target/resource busy (another mutating operation is active)
 """);
     }
 }
