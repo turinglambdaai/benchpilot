@@ -74,6 +74,15 @@ public sealed class BenchClient : IDisposable
     public Task<OperationListResult> Operations(CancellationToken ct = default) =>
         Send<OperationListResult>(HttpMethod.Get, "api/v1/operations", null, ct);
 
+    public Task<OperationHistoryResult> OperationHistory(
+        int limit = 50,
+        CancellationToken ct = default) =>
+        Send<OperationHistoryResult>(
+            HttpMethod.Get,
+            $"api/v1/operations/history?limit={limit}",
+            null,
+            ct);
+
     public Task<OperationCancelResult> CancelOperation(
         string operationId,
         CancellationToken ct = default)
