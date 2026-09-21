@@ -49,11 +49,19 @@ var app = builder.Build();
 var lifecycle = app.Services.GetRequiredService<RuntimeHostLifecycle>();
 app.Lifetime.ApplicationStopping.Register(lifecycle.BeginStopping);
 
-// Once host shutdown begins, do not admit new hardware work while the shutdown
-// service is draining existing Runtime-owned operations/observations.
+// Once shutdown begins no new non-health request is admitted. Requests that
+// crossed this middleware immediately before ApplicationStopping remain counted
+// until their complete HTTP execution leaves the middleware, allowing shutdown
+// to wait even for work that has not yet registered an operation/observation.
 app.Use(async (context, next) =>
 {
-    if (lifecycle.IsStopping && !context.Request.Path.StartsWithSegments("/healthz"))
+    if (context.Request.Path.StartsWithSegments("/healthz"))
+    {
+        await next();
+        return;
+    }
+
+    if (!lifecycle.TryEnterRequest(out var requestLease))
     {
         context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
         await context.Response.WriteAsJsonAsync(new ApiError(
@@ -63,7 +71,8 @@ app.Use(async (context, next) =>
         return;
     }
 
-    await next();
+    using (requestLease)
+        await next();
 });
 
 app.MapGet("/healthz", () =>
