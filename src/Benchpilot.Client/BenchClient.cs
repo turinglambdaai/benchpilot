@@ -107,6 +107,42 @@ public sealed class BenchClient : IDisposable
             ct);
     }
 
+    public Task<ObservationListResult> Observations(CancellationToken ct = default) =>
+        Send<ObservationListResult>(HttpMethod.Get, "api/v1/observations", null, ct);
+
+    public Task<ObservationHistoryResult> ObservationHistory(
+        int limit = 50,
+        CancellationToken ct = default) =>
+        Send<ObservationHistoryResult>(
+            HttpMethod.Get,
+            $"api/v1/observations/history?limit={limit}",
+            null,
+            ct);
+
+    public Task<ObservationEvidenceResult> ObservationEvidence(
+        string observationId,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(observationId);
+        return Send<ObservationEvidenceResult>(
+            HttpMethod.Get,
+            $"api/v1/observations/{Uri.EscapeDataString(observationId)}/evidence",
+            null,
+            ct);
+    }
+
+    public Task<ObservationCancelResult> CancelObservation(
+        string observationId,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(observationId);
+        return Send<ObservationCancelResult>(
+            HttpMethod.Post,
+            $"api/v1/observations/{Uri.EscapeDataString(observationId)}/cancel",
+            null,
+            ct);
+    }
+
     public Task<TargetPreflightResult> Preflight(
         string? target = null,
         CancellationToken ct = default) =>
