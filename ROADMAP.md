@@ -2,11 +2,11 @@
 
 BenchPilot is developed as an **agent-native ECU development runtime**, not as a feature-for-feature CANoe replacement.
 
-The roadmap prioritizes one complete real-ECU loop over broad protocol coverage.
+The roadmap prioritizes one complete real-ECU loop over broad protocol coverage. The current gate is **physical bench validation and bounded failure evidence**, not adding more protocols.
 
 ## Foundation — complete
 
-Goal: make the P0 demo architecture capable of growing into a real bench without rewriting the product.
+Goal: make the original P0 demo architecture capable of growing into a real bench without rewriting the product.
 
 - [x] simulator-backed power / serial / flash loop;
 - [x] MCP thin shell;
@@ -35,13 +35,31 @@ benchpilotd owns simulator state
 power -> flash -> wait Ready -> current check -> power off
 ```
 
-Runtime hardening continues as real devices land:
+## Runtime safety and observability — local bench baseline complete
+
+These are now Runtime properties shared by CLI, MCP and future Studio clients, rather than shell-specific behavior.
 
 - [x] resource lifetime and deterministic disposal;
-- [ ] structured device/runtime error taxonomy beyond the initial API error envelope;
-- [ ] resource locking / leases for concurrent clients;
-- [ ] operation IDs, cancellation and timeout semantics across IPC;
-- [ ] bounded artifact/event store for observations and failure windows.
+- [x] target-level non-blocking mutation gates;
+- [x] physical-resource locking across different targets sharing one PSU/probe/resource;
+- [x] structured `busy` conflicts identifying target/resource scope;
+- [x] active operation IDs with target, operation kind, resources and start time;
+- [x] cooperative cancellation through Runtime into supported drivers;
+- [x] busy responses identify the owning operation when available;
+- [x] bounded in-memory operation history with `completed` / `cancelled` / `faulted` execution states;
+- [x] explicit normal shutdown versus emergency shutdown semantics;
+- [x] emergency power-off bypasses mutation gates, is non-cancellable once accepted, and is audited;
+- [x] destructive flash/reset confirmation policy;
+- [x] maximum voltage/current bench safety enforcement;
+- [x] stable validation / not-found / busy / cancelled / runtime-state API error classes;
+
+Still intentionally incomplete:
+
+- [ ] richer device/runtime error taxonomy for vendor-specific failures without leaking vendor SDK types into Core;
+- [ ] one Runtime-level deadline/timeout model across all long operations (drivers already enforce bounded device timeouts where required);
+- [ ] bounded failure-window evidence/artifact store tied to operation IDs;
+- [ ] graceful Runtime shutdown that waits for cancelled in-flight hardware operations to unwind before disposing shared resources;
+- [ ] remote/team leases — local mutation locks are **not** a substitute for authenticated remote ownership.
 
 ## Real bench vertical slice — in progress
 
@@ -55,9 +73,17 @@ Architecture prerequisite:
 First real drivers:
 
 - [x] `system-serial` backend implementation;
-- [x] J-Link Commander backend for flash/reset implementation;
+- [x] J-Link Commander backend for flash/reset;
+- [x] SCPI TCP power-supply backend;
+- [x] non-destructive `preflight` path exposed through Runtime / CLI / MCP;
+- [x] serial OS-device visibility check;
+- [x] SCPI `*IDN?` connectivity check;
+- [x] J-Link Commander discovery;
+- [x] non-destructive J-Link `ShowEmuList USB` probe enumeration;
+- [x] deterministic J-Link serial-number matching when multiple probes are present;
 - [ ] physical serial + J-Link validation against a real ECU;
-- [ ] SCPI power backend;
+- [ ] physical SCPI PSU validation against a real ECU bench;
+- [ ] one documented, repeatable real-ECU smoke profile checked into `profiles/` after hardware validation.
 
 Serial design:
 
@@ -70,24 +96,46 @@ J-Link design:
 
 - BenchPilot invokes the user's installed SEGGER J-Link Commander and does not redistribute SEGGER binaries;
 - device/interface/speed/probe serial/executable are profile settings;
-- command execution is bounded by timeout/cancellation and captures bounded diagnostics;
+- preflight enumerates USB probes without selecting a device, connecting to the MCU, halting or resetting it;
+- flash/reset execution is bounded by timeout/cancellation and captures bounded diagnostics;
 - `.bin` images require an explicit `binAddress`; BenchPilot does not guess flash addresses.
 
-Safety / observation:
+SCPI power design:
 
-- [ ] power/current safety enforcement against real instruments;
-- [ ] target identity and explicit destructive-operation guardrails beyond explicit target selection;
-- [ ] failure-window artifacts around flash/boot failures.
+- TCP SCPI connection details live in the resource profile;
+- `preflight` uses read-only `*IDN?`;
+- over-voltage requests are rejected before driver calls;
+- measured over-current after power-on triggers best-effort shutdown;
+- protocol/measurement failure after output enable triggers best-effort `OUTP OFF`;
+- device timeout and user/operation cancellation are distinguished;
+- explicit emergency shutdown is the only shell-facing path allowed to bypass target/resource locks.
 
-Exit criterion:
+### Next implementation gate: failure evidence
+
+Before CAN/UDS, make failures explainable to an Agent without dumping unbounded raw logs.
+
+- [ ] bounded evidence model keyed by operation ID;
+- [ ] capture the final bounded J-Link stdout/stderr window for failed flash/reset operations;
+- [ ] capture bounded UART lines around boot/wait failures;
+- [ ] capture relevant power/current measurements around power/flash failures;
+- [ ] CLI/MCP query for an operation's evidence;
+- [ ] preserve strict size/count limits so evidence remains LLM-context friendly.
+
+Real-bench exit criterion:
 
 ```text
-Build -> power check -> flash -> reset -> wait for UART Ready -> current check
+preflight
+   -> power on + current safety check
+   -> flash
+   -> reset
+   -> wait for UART Ready
+   -> current check
+   -> normal power off
 ```
 
-runs against a physical ECU through both CLI and an Agent.
+runs against a physical ECU through both CLI and an Agent, and a failed run returns enough bounded evidence to diagnose the failure without manually opening vendor tools.
 
-## Automotive communication vertical slice
+## Automotive communication vertical slice — after real-bench exit criterion
 
 Goal: make the same real ECU observable through its vehicle network.
 
@@ -104,7 +152,7 @@ Protocol/semantic layer:
 - [ ] `wait_signal` / `assert_signal` / `measure_signal` observations;
 - [ ] ISO-TP transport.
 
-Exit criterion: Agent validates an ECU behavior from decoded signals without consuming an unbounded CAN log.
+Exit criterion: Agent validates ECU behavior from decoded signals without consuming an unbounded CAN log.
 
 ## Diagnostics and professional flashing
 
@@ -113,7 +161,7 @@ Goal: make programming a first-class, safe transaction rather than a collection 
 UDS core:
 
 - [ ] sessions and timing (`P2`, `P2*`, `S3`);
-- [ ] structured NRC handling, including ResponsePending;
+- [ ] structured NRC handling, including `ResponsePending`;
 - [ ] DID / DTC / RoutineControl primitives;
 - [ ] Security Provider abstraction;
 - [ ] ISO-TP first, DoIP later.
@@ -152,9 +200,9 @@ First useful screens:
 - [ ] Console;
 - [ ] CAN signals/capture;
 - [ ] Diagnostics;
-- [ ] Run/Agent timeline.
+- [ ] Run/Agent timeline backed by Runtime active-operation + history/evidence APIs.
 
-GUI technology is deliberately decoupled. Avalonia is the conservative default; a Racket/Glaze frontend remains viable if it proves a concrete productivity or UX advantage over the stable Runtime API.
+GUI technology is deliberately decoupled. Avalonia is the conservative default; a Racket/Glaze frontend remains viable only if it proves a concrete productivity or UX advantage over the stable Runtime API.
 
 ## Remote / team benches
 
@@ -165,8 +213,8 @@ Required before remote operation:
 - [ ] authenticated transport;
 - [ ] authorization / role policy;
 - [ ] TLS or equivalent secure channel;
-- [ ] resource leases and ownership;
-- [ ] audit trail;
+- [ ] resource leases and ownership across users/processes;
+- [ ] persistent audit trail;
 - [ ] bench scheduling / reservation;
 - [ ] explicit policy for destructive operations.
 
