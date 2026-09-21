@@ -68,6 +68,14 @@ internal static class BenchpilotCli
                     return result.Ok ? 0 : 1;
                 }
 
+                case ("evidence", _):
+                {
+                    var operationId = RequirePositional(parsed, 1, "operation id");
+                    var result = await client.OperationEvidence(operationId, cts.Token);
+                    Print(result, parsed.Json);
+                    return result.Ok ? 0 : 1;
+                }
+
                 case ("cancel", _):
                 {
                     var operationId = RequirePositional(parsed, 1, "operation id");
@@ -248,11 +256,12 @@ internal static class BenchpilotCli
 BenchPilot CLI - client for the resident ECU bench runtime
 
 Usage:
-  benchpilot status                [--json] [--endpoint URL]
-  benchpilot operations            [--json] [--endpoint URL]
-  benchpilot history               [--limit N] [--json] [--endpoint URL]
-  benchpilot cancel <operation-id> [--json] [--endpoint URL]
-  benchpilot preflight             [--target ID] [--json]
+  benchpilot status                 [--json] [--endpoint URL]
+  benchpilot operations             [--json] [--endpoint URL]
+  benchpilot history                [--limit N] [--json] [--endpoint URL]
+  benchpilot evidence <operation-id> [--json] [--endpoint URL]
+  benchpilot cancel <operation-id>  [--json] [--endpoint URL]
+  benchpilot preflight              [--target ID] [--json]
 
   benchpilot power on            [--target ID] [--voltage V] [--settle-ms N] [--json]
   benchpilot power off           [--target ID] [--json]
@@ -277,6 +286,10 @@ execution transport: completed means the call returned normally, cancelled means
 cancellation propagated, and faulted means the operation threw an exception.
 The business result may still carry ok=false for a normally returned device error.
 
+`evidence` returns a compact evidence bundle for one terminal mutation. Driver
+raw diagnostics must already be bounded before entering Runtime; evidence applies
+additional item/text/metadata limits so the result stays Agent-context friendly.
+
 `preflight` is non-destructive. It checks configured resource readiness without
 power-cycling, resetting or flashing the target.
 
@@ -297,7 +310,7 @@ Exit codes:
   0 success
   1 operation/assertion failure or cancellation
   2 validation error
-  3 target/resource/operation not found
+  3 target/resource/operation/evidence not found
   4 runtime/device unavailable or device/preflight error
   5 target/resource busy (another mutating operation is active)
 """);
