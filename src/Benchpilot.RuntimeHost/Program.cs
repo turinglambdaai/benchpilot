@@ -159,6 +159,93 @@ app.MapPost($"{BenchpilotApi.Prefix}/operations/{{operationId}}/cancel", (
     return Results.Json(new OperationCancelResult(true, operationId, true));
 });
 
+app.MapGet($"{BenchpilotApi.Prefix}/observations", (BenchRuntime runtime) =>
+{
+    var observations = runtime.ActiveObservations
+        .Select(x => new ObservationSummary(
+            x.Id,
+            x.TargetId,
+            x.Kind,
+            x.ResourceIds,
+            x.StartedAtUtc,
+            x.CancellationRequested))
+        .ToArray();
+    return Results.Json(new ObservationListResult(true, observations));
+});
+
+app.MapGet($"{BenchpilotApi.Prefix}/observations/history", (
+    int? limit,
+    BenchRuntime runtime) =>
+{
+    try
+    {
+        var observations = runtime.RecentObservations(limit ?? 50)
+            .Select(x => new ObservationHistorySummary(
+                x.Id,
+                x.TargetId,
+                x.Kind,
+                x.ResourceIds,
+                x.StartedAtUtc,
+                x.CompletedAtUtc,
+                x.DurationMs,
+                x.State,
+                x.Error))
+            .ToArray();
+        return Results.Json(new ObservationHistoryResult(true, observations));
+    }
+    catch (BenchValidationException ex)
+    {
+        return Results.BadRequest(new ApiError(false, "validation", ex.Message));
+    }
+});
+
+app.MapGet($"{BenchpilotApi.Prefix}/observations/{{observationId}}/evidence", (
+    string observationId,
+    BenchRuntime runtime) =>
+{
+    if (string.IsNullOrWhiteSpace(observationId))
+        return Results.BadRequest(new ApiError(false, "validation", "Observation id cannot be empty."));
+
+    var evidence = runtime.GetObservationEvidence(observationId);
+    if (evidence is null)
+    {
+        return Results.NotFound(new ApiError(
+            false,
+            "not_found",
+            $"Evidence for observation '{observationId}' was not found."));
+    }
+
+    var items = evidence.Items
+        .Select(x => new EvidenceItemSummary(x.Kind, x.Summary, x.Text, x.Metadata))
+        .ToArray();
+    return Results.Json(new ObservationEvidenceResult(
+        true,
+        evidence.ObservationId,
+        evidence.TargetId,
+        evidence.ObservationKind,
+        evidence.ResourceIds,
+        evidence.CreatedAtUtc,
+        items));
+});
+
+app.MapPost($"{BenchpilotApi.Prefix}/observations/{{observationId}}/cancel", (
+    string observationId,
+    BenchRuntime runtime) =>
+{
+    if (string.IsNullOrWhiteSpace(observationId))
+        return Results.BadRequest(new ApiError(false, "validation", "Observation id cannot be empty."));
+
+    if (!runtime.CancelObservation(observationId))
+    {
+        return Results.NotFound(new ApiError(
+            false,
+            "not_found",
+            $"Active observation '{observationId}' was not found."));
+    }
+
+    return Results.Json(new ObservationCancelResult(true, observationId, true));
+});
+
 app.MapPost($"{BenchpilotApi.Prefix}/preflight", async (
     string? target,
     BenchRuntime runtime,
@@ -282,7 +369,7 @@ static async Task<IResult> Execute<T>(Func<Task<T>> operation)
     catch (OperationCanceledException)
     {
         return Results.Json(
-            new ApiError(false, "cancelled", "Operation cancelled."),
+            new ApiError(false, "cancelled", "Request cancelled."),
             statusCode: StatusCodes.Status409Conflict);
     }
     catch (InvalidOperationException ex)
