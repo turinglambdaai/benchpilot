@@ -48,6 +48,9 @@ public static class BenchReadiness
                 present
                     ? $"Target provides required '{capability}' capability."
                     : $"Target is missing required '{capability}' capability.",
+                present
+                    ? null
+                    : $"Add a '{capability}' resource and bind targets.{target.Id}.bindings.{capability} to that resource.",
                 details));
         }
 
@@ -64,6 +67,9 @@ public static class BenchReadiness
                 "mixed" => "Required capabilities mix simulator and hardware resources; the physical ECU loop is incomplete.",
                 _ => "Could not determine a complete hardware mode for the required capabilities.",
             },
+            hardwareOnly
+                ? null
+                : "Replace simulator-backed required capabilities with real resource drivers before running a physical ECU loop.",
             new Dictionary<string, string> { ["mode"] = mode }));
 
         var safety = runtime.Profile.Safety;
@@ -71,26 +77,34 @@ public static class BenchReadiness
             "safety.max-voltage",
             "maxVoltage",
             safety.MaxVoltage,
-            "V"));
+            "V",
+            "Set safety.maxVoltage to the maximum voltage this bench is allowed to apply to the ECU."));
         checks.Add(SafetyValueCheck(
             "safety.max-current",
             "maxCurrentMa",
             safety.MaxCurrentMa,
-            "mA"));
+            "mA",
+            "Set safety.maxCurrentMa to a conservative current ceiling for this ECU and bench wiring."));
         checks.Add(new BenchReadinessCheck(
             "safety.explicit-target",
             safety.RequireExplicitTarget,
             "error",
             safety.RequireExplicitTarget
                 ? "Explicit target selection is required by bench policy."
-                : "Real-bench readiness requires safety.requireExplicitTarget=true."));
+                : "Real-bench readiness requires safety.requireExplicitTarget=true.",
+            safety.RequireExplicitTarget
+                ? null
+                : "Set safety.requireExplicitTarget=true so destructive work cannot silently fall back to a default target."));
         checks.Add(new BenchReadinessCheck(
             "safety.destructive-confirmation",
             safety.RequireDestructiveConfirmation,
             "error",
             safety.RequireDestructiveConfirmation
                 ? "Flash/reset require explicit target confirmation."
-                : "Real-bench readiness requires safety.requireDestructiveConfirmation=true."));
+                : "Real-bench readiness requires safety.requireDestructiveConfirmation=true.",
+            safety.RequireDestructiveConfirmation
+                ? null
+                : "Set safety.requireDestructiveConfirmation=true so flash/reset require an explicit matching target confirmation."));
 
         var placeholderPaths = FindPlaceholderPaths(runtime.Profile, target.Id, boundRequiredResources.Keys);
         checks.Add(new BenchReadinessCheck(
@@ -100,6 +114,9 @@ public static class BenchReadiness
             placeholderPaths.Count == 0
                 ? "No CHANGE_ME placeholders remain in the target's real-bench configuration."
                 : $"Profile still contains {placeholderPaths.Count} CHANGE_ME placeholder(s) for this target.",
+            placeholderPaths.Count == 0
+                ? null
+                : "Replace every listed CHANGE_ME value with the actual ECU/tool/bench setting before using the physical bench.",
             placeholderPaths.Count == 0
                 ? null
                 : new Dictionary<string, string>
@@ -116,7 +133,10 @@ public static class BenchReadiness
             "warning",
             mcuSpecified
                 ? $"Target MCU metadata is set to '{target.Mcu}'."
-                : "Target MCU metadata is missing or still a placeholder; this does not block Runtime readiness but should be fixed before publishing the profile."));
+                : "Target MCU metadata is missing or still a placeholder; this does not block Runtime readiness but should be fixed before publishing the profile.",
+            mcuSpecified
+                ? null
+                : $"Set targets.{target.Id}.mcu to the concrete MCU/SoC identifier used by this ECU."));
 
         var preflight = await runtime.Preflight(target.Id, ct);
         checks.Add(new BenchReadinessCheck(
@@ -126,6 +146,9 @@ public static class BenchReadiness
             preflight.Ok
                 ? "All target resources passed non-destructive preflight."
                 : "One or more target resources failed non-destructive preflight.",
+            preflight.Ok
+                ? null
+                : "Inspect preflight.resources entries with ok=false and fix tool installation, device selection, cabling, port visibility or network reachability before continuing.",
             new Dictionary<string, string>
             {
                 ["resourceCount"] = preflight.Resources.Count.ToString(CultureInfo.InvariantCulture),
@@ -148,7 +171,8 @@ public static class BenchReadiness
         string code,
         string setting,
         double? value,
-        string unit)
+        string unit,
+        string remediation)
     {
         var present = value.HasValue;
         return new BenchReadinessCheck(
@@ -158,6 +182,7 @@ public static class BenchReadiness
             present
                 ? $"Bench safety {setting} is configured at {value!.Value.ToString("0.###", CultureInfo.InvariantCulture)} {unit}."
                 : $"Real-bench readiness requires safety.{setting} to be configured.",
+            present ? null : remediation,
             present
                 ? new Dictionary<string, string>
                 {
