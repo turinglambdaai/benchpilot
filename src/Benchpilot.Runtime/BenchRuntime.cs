@@ -230,10 +230,12 @@ public sealed class BenchRuntime : IDisposable
             try
             {
                 var result = await action(active.Token);
-                // A vendor adapter may return normally even after ignoring the
-                // linked cancellation token. Do not accept a stale success once
-                // Runtime's deadline/cancellation has already fired.
-                active.Token.ThrowIfCancellationRequested();
+                // Preserve the existing compatibility contract for a driver that
+                // ignores caller/drain cancellation and eventually returns. A
+                // Runtime deadline is different: once its wall-clock budget has
+                // expired, a late success is never accepted.
+                if (active.DeadlineExceeded)
+                    throw new OperationCanceledException(active.Token);
                 RecordEvidence(active, OperationEvidenceExtractor.FromResult(result));
                 RecordOperation(active, "completed", null);
                 return result;
@@ -321,7 +323,8 @@ public sealed class BenchRuntime : IDisposable
         try
         {
             var execution = await action(observationId, active.Token);
-            active.Token.ThrowIfCancellationRequested();
+            if (active.DeadlineExceeded)
+                throw new OperationCanceledException(active.Token);
             RecordObservationEvidence(active, execution.Evidence);
             RecordObservation(active, "completed", null);
             return execution.Result;
