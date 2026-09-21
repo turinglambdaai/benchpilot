@@ -27,6 +27,12 @@ internal sealed class OperationTools
         => await _client.OperationHistory(limit, CancellationToken.None);
 
     [McpServerTool]
+    [Description("Get compact bounded evidence for one terminal mutating operation. Use ListOperationHistory to obtain the operation id. Evidence includes semantic result metadata and already-bounded driver diagnostics without returning unbounded raw logs.")]
+    public async Task<OperationEvidenceResult> GetOperationEvidence(
+        [Description("Operation id returned by ListOperationHistory or a prior busy response.")] string operationId)
+        => await _client.OperationEvidence(operationId, CancellationToken.None);
+
+    [McpServerTool]
     [Description("Request cooperative cancellation of one active bench operation by operation id. Use ListOperations first. Cancellation propagates into supported hardware drivers; the operation disappears after the driver exits and Runtime releases its locks.")]
     public async Task<OperationCancelResult> CancelOperation(
         [Description("Operation id returned by ListOperations or a busy error.")] string operationId)
