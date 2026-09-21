@@ -70,6 +70,41 @@ public record OperationHistoryResult(
     IReadOnlyList<OperationHistorySummary> Operations,
     string? Error = null);
 
+public record ObservationSummary(
+    string Id,
+    string TargetId,
+    string Kind,
+    IReadOnlyList<string> ResourceIds,
+    DateTimeOffset StartedAtUtc,
+    bool CancellationRequested);
+
+public record ObservationListResult(
+    bool Ok,
+    IReadOnlyList<ObservationSummary> Observations,
+    string? Error = null);
+
+public record ObservationCancelResult(
+    bool Ok,
+    string ObservationId,
+    bool CancelRequested,
+    string? Error = null);
+
+public record ObservationHistorySummary(
+    string Id,
+    string TargetId,
+    string Kind,
+    IReadOnlyList<string> ResourceIds,
+    DateTimeOffset StartedAtUtc,
+    DateTimeOffset CompletedAtUtc,
+    int DurationMs,
+    string State,
+    string? Error = null);
+
+public record ObservationHistoryResult(
+    bool Ok,
+    IReadOnlyList<ObservationHistorySummary> Observations,
+    string? Error = null);
+
 public record EvidenceItemSummary(
     string Kind,
     string Summary,
@@ -81,6 +116,16 @@ public record OperationEvidenceResult(
     string OperationId,
     string TargetId,
     string OperationKind,
+    IReadOnlyList<string> ResourceIds,
+    DateTimeOffset CreatedAtUtc,
+    IReadOnlyList<EvidenceItemSummary> Items,
+    string? Error = null);
+
+public record ObservationEvidenceResult(
+    bool Ok,
+    string ObservationId,
+    string TargetId,
+    string ObservationKind,
     IReadOnlyList<string> ResourceIds,
     DateTimeOffset CreatedAtUtc,
     IReadOnlyList<EvidenceItemSummary> Items,
