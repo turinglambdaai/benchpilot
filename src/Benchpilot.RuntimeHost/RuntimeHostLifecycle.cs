@@ -59,19 +59,39 @@ internal sealed class RuntimeShutdownService : IHostedService
 
     private readonly BenchRuntime _runtime;
     private readonly RuntimeHostLifecycle _lifecycle;
+    private readonly IHostApplicationLifetime _applicationLifetime;
     private readonly ILogger<RuntimeShutdownService> _logger;
+    private CancellationTokenRegistration _stoppingRegistration;
 
     public RuntimeShutdownService(
         BenchRuntime runtime,
         RuntimeHostLifecycle lifecycle,
+        IHostApplicationLifetime applicationLifetime,
         ILogger<RuntimeShutdownService> logger)
     {
         _runtime = runtime;
         _lifecycle = lifecycle;
+        _applicationLifetime = applicationLifetime;
         _logger = logger;
     }
 
-    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        // ApplicationStopping fires before the host invokes hosted-service
+        // StopAsync. Cancel Runtime-owned long requests here so the web server
+        // does not wait on an HTTP serial/flash request that itself needs
+        // StopAsync to be cancelled — a shutdown dependency cycle.
+        _stoppingRegistration = _applicationLifetime.ApplicationStopping.Register(() =>
+        {
+            _lifecycle.BeginStopping();
+
+            foreach (var operation in _runtime.ActiveOperations)
+                _runtime.CancelOperation(operation.Id);
+            foreach (var observation in _runtime.ActiveObservations)
+                _runtime.CancelObservation(observation.Id);
+        });
+        return Task.CompletedTask;
+    }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -100,6 +120,7 @@ internal sealed class RuntimeShutdownService : IHostedService
             if (lastDrain.Drained && _lifecycle.InFlightRequests == 0)
             {
                 _runtime.Dispose();
+                _stoppingRegistration.Dispose();
                 _logger.LogInformation("BenchPilot Runtime shutdown: active work drained and hardware resources released.");
                 return;
             }
@@ -127,6 +148,7 @@ internal sealed class RuntimeShutdownService : IHostedService
             break;
         }
 
+        _stoppingRegistration.Dispose();
         var remainingOperations = _runtime.ActiveOperations.Select(x => x.Id).ToArray();
         var remainingObservations = _runtime.ActiveObservations.Select(x => x.Id).ToArray();
 
