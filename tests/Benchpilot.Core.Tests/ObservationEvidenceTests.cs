@@ -54,6 +54,39 @@ public sealed class ObservationEvidenceTests
         return new BenchRuntime(profile, registry);
     }
 
+    private static BenchRuntime NewSharedRuntime(SharedSerialFlashResource resource)
+    {
+        var profile = new BenchProfile
+        {
+            SchemaVersion = 1,
+            Name = "Shared observation test bench",
+            DefaultTarget = "ecu",
+            Resources = new Dictionary<string, BenchResourceConfig>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["shared.test"] = new()
+                {
+                    Driver = "test",
+                    Capabilities = ["serial", "flash"],
+                },
+            },
+            Targets = new Dictionary<string, BenchTargetConfig>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ecu"] = new()
+                {
+                    Bindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["serial"] = "shared.test",
+                        ["flash"] = "shared.test",
+                    },
+                },
+            },
+        };
+
+        var registry = new BenchResourceRegistry(profile);
+        registry.Register("shared.test", resource);
+        return new BenchRuntime(profile, registry);
+    }
+
     [Fact]
     public async Task Unmatched_serial_wait_gets_identity_history_and_bounded_failure_window()
     {
@@ -93,7 +126,7 @@ public sealed class ObservationEvidenceTests
     }
 
     [Fact]
-    public async Task Active_observation_does_not_take_target_or_resource_mutation_gate()
+    public async Task Active_observation_does_not_take_target_mutation_gate()
     {
         var serial = new BlockingSerialChannel();
         using var runtime = NewRuntime(serial, new ImmediateFlashTarget());
@@ -108,6 +141,28 @@ public sealed class ObservationEvidenceTests
         Assert.True(flash.Ok);
         Assert.Single(runtime.ActiveObservations);
         Assert.Empty(runtime.ActiveOperations);
+
+        Assert.True(runtime.CancelObservation(observation.Id));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await waitTask);
+    }
+
+    [Fact]
+    public async Task Active_observation_does_not_take_shared_physical_resource_gate()
+    {
+        var shared = new SharedSerialFlashResource();
+        using var runtime = NewSharedRuntime(shared);
+        var target = runtime.Target();
+
+        var waitTask = target.SerialWaitFor("Ready", 60_000);
+        await shared.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var observation = Assert.Single(runtime.ActiveObservations);
+        Assert.Equal(["shared.test"], observation.ResourceIds);
+
+        // The exact same resource instance is being observed over serial while
+        // flash takes the normal resource mutation gate. Observation identity
+        // must not participate in that gate.
+        var flash = await target.Flash("build/app.elf");
+        Assert.True(flash.Ok);
 
         Assert.True(runtime.CancelObservation(observation.Id));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await waitTask);
@@ -221,6 +276,40 @@ public sealed class ObservationEvidenceTests
         {
             ct.ThrowIfCancellationRequested();
             return Task.FromResult(new FlashResult(true, 1024, 1));
+        }
+
+        public Task<ResetResult> Reset(CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult(new ResetResult(true));
+        }
+    }
+
+    private sealed class SharedSerialFlashResource : ISerialChannel, IFlashTarget
+    {
+        public TaskCompletionSource<bool> Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<SerialOpenResult> Open(string? port = null, int? baud = null, CancellationToken ct = default) =>
+            Task.FromResult(new SerialOpenResult(true, port ?? "TEST0", baud ?? 115200));
+
+        public async Task<SerialWaitResult> WaitFor(string pattern, int timeoutMs, CancellationToken ct = default)
+        {
+            Started.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            throw new InvalidOperationException("Unreachable");
+        }
+
+        public Task<SerialWindowResult> ReadWindow(int lines, string? filter, CancellationToken ct = default) =>
+            Task.FromResult(new SerialWindowResult(true, Array.Empty<string>()));
+
+        public Task<SerialSendResult> Send(string data, CancellationToken ct = default) =>
+            Task.FromResult(new SerialSendResult(true));
+
+        public Task<FlashResult> Flash(string firmwarePath, CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult(new FlashResult(true, 2048, 1));
         }
 
         public Task<ResetResult> Reset(CancellationToken ct = default)
