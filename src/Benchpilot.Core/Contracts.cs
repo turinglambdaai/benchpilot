@@ -12,10 +12,31 @@ public record CurrentCheck(bool Ok, double ValueMa, bool Passed, string? Error =
 public record FlashResult(bool Ok, int Bytes, int DurationMs, string? Error = null);
 public record ResetResult(bool Ok, string? Error = null);
 
-public record SerialOpenResult(bool Ok, string Port, int Baud, string? Error = null);
-public record SerialWaitResult(bool Ok, bool Matched, string? MatchedLine, int ElapsedMs, string? Error = null);
-public record SerialWindowResult(bool Ok, IReadOnlyList<string> Lines, string? Error = null);
-public record SerialSendResult(bool Ok, string? Error = null);
+// Serial calls are non-mutating observations/actions. Runtime attaches a stable
+// observation id so a caller can correlate the returned result with bounded
+// history/evidence without turning reads into mutation-gated operations.
+public record SerialOpenResult(
+    bool Ok,
+    string Port,
+    int Baud,
+    string? Error = null,
+    string? ObservationId = null);
+public record SerialWaitResult(
+    bool Ok,
+    bool Matched,
+    string? MatchedLine,
+    int ElapsedMs,
+    string? Error = null,
+    string? ObservationId = null);
+public record SerialWindowResult(
+    bool Ok,
+    IReadOnlyList<string> Lines,
+    string? Error = null,
+    string? ObservationId = null);
+public record SerialSendResult(
+    bool Ok,
+    string? Error = null,
+    string? ObservationId = null);
 
 public record ResourceHealthResult(
     bool Ok,

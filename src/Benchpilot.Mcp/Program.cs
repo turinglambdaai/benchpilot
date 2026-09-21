@@ -13,6 +13,7 @@ builder.Services.AddMcpServer()
     .WithStdioServerTransport()
     .WithTools<BenchTools>()
     .WithTools<OperationTools>()
+    .WithTools<ObservationTools>()
     .WithTools<PowerTools>()
     .WithTools<FlashTools>()
     .WithTools<SerialTools>();

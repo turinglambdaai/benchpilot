@@ -161,7 +161,21 @@ public sealed class BenchTarget
             throw new BenchValidationException("Serial port override cannot be empty.");
         if (baud is <= 0)
             throw new BenchValidationException("Serial baud override must be greater than zero.");
-        return Capability<ISerialChannel>("serial").Open(port, baud, ct);
+
+        var binding = BoundCapability<ISerialChannel>("serial");
+        return _runtime.RunObservation(
+            Id,
+            "serial.open",
+            [binding.ResourceId],
+            async (observationId, observationCt) =>
+            {
+                var result = await binding.Capability.Open(port, baud, observationCt);
+                var identified = result with { ObservationId = observationId };
+                return new ObservationExecution<SerialOpenResult>(
+                    identified,
+                    SerialObservationEvidenceExtractor.FromOpen(identified));
+            },
+            ct);
     }
 
     public Task<SerialWaitResult> SerialWaitFor(
@@ -173,7 +187,38 @@ public sealed class BenchTarget
             throw new BenchValidationException("Serial wait pattern cannot be empty.");
         if (timeoutMs < 0)
             throw new BenchValidationException("Serial timeout cannot be negative.");
-        return Capability<ISerialChannel>("serial").WaitFor(pattern, timeoutMs, ct);
+
+        var binding = BoundCapability<ISerialChannel>("serial");
+        return _runtime.RunObservation(
+            Id,
+            "serial.wait",
+            [binding.ResourceId],
+            async (observationId, observationCt) =>
+            {
+                var result = await binding.Capability.WaitFor(pattern, timeoutMs, observationCt);
+                var identified = result with { ObservationId = observationId };
+
+                SerialWindowResult? failureWindow = null;
+                if (!identified.Ok || !identified.Matched)
+                {
+                    // The channel already owns a bounded local line buffer. Read
+                    // only a small tail after failure instead of copying the raw
+                    // stream into Runtime/Agent context.
+                    failureWindow = await binding.Capability.ReadWindow(
+                        20,
+                        null,
+                        CancellationToken.None);
+                }
+
+                return new ObservationExecution<SerialWaitResult>(
+                    identified,
+                    SerialObservationEvidenceExtractor.FromWait(
+                        pattern,
+                        timeoutMs,
+                        identified,
+                        failureWindow));
+            },
+            ct);
     }
 
     public Task<SerialWindowResult> SerialReadWindow(
@@ -183,14 +228,42 @@ public sealed class BenchTarget
     {
         if (lines <= 0)
             throw new BenchValidationException("Serial window line count must be greater than zero.");
-        return Capability<ISerialChannel>("serial").ReadWindow(lines, filter, ct);
+
+        var binding = BoundCapability<ISerialChannel>("serial");
+        return _runtime.RunObservation(
+            Id,
+            "serial.window",
+            [binding.ResourceId],
+            async (observationId, observationCt) =>
+            {
+                var result = await binding.Capability.ReadWindow(lines, filter, observationCt);
+                var identified = result with { ObservationId = observationId };
+                return new ObservationExecution<SerialWindowResult>(
+                    identified,
+                    SerialObservationEvidenceExtractor.FromWindow(identified));
+            },
+            ct);
     }
 
     public Task<SerialSendResult> SerialSend(string data, CancellationToken ct = default)
     {
         if (data is null)
             throw new BenchValidationException("Serial data cannot be null.");
-        return Capability<ISerialChannel>("serial").Send(data, ct);
+
+        var binding = BoundCapability<ISerialChannel>("serial");
+        return _runtime.RunObservation(
+            Id,
+            "serial.send",
+            [binding.ResourceId],
+            async (observationId, observationCt) =>
+            {
+                var result = await binding.Capability.Send(data, observationCt);
+                var identified = result with { ObservationId = observationId };
+                return new ObservationExecution<SerialSendResult>(
+                    identified,
+                    SerialObservationEvidenceExtractor.FromSend(identified, data.Length));
+            },
+            ct);
     }
 
     private (string ResourceId, T Capability) BoundCapability<T>(string capability) where T : class

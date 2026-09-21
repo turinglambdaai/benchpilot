@@ -11,15 +11,21 @@ namespace Benchpilot.Runtime;
 public sealed class BenchRuntime : IDisposable
 {
     private const int OperationHistoryCapacity = 128;
+    private const int ObservationHistoryCapacity = 128;
     private const int MaxHistoryErrorLength = 1000;
 
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _mutationGates =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ActiveMutation> _activeOperations =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ActiveObservation> _activeObservations =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly object _historySync = new();
     private readonly Queue<BenchOperationRecord> _operationHistory = new();
+    private readonly object _observationHistorySync = new();
+    private readonly Queue<BenchObservationRecord> _observationHistory = new();
     private readonly OperationEvidenceStore _evidence = new();
+    private readonly ObservationEvidenceStore _observationEvidence = new();
     private bool _disposed;
 
     public BenchProfile Profile { get; }
@@ -45,6 +51,19 @@ public sealed class BenchRuntime : IDisposable
         }
     }
 
+    public IReadOnlyList<BenchObservationInfo> ActiveObservations
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _activeObservations.Values
+                .Select(x => x.Snapshot())
+                .OrderBy(x => x.StartedAtUtc)
+                .ThenBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+    }
+
     public IReadOnlyList<BenchOperationRecord> RecentOperations(int limit = 50)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -61,6 +80,22 @@ public sealed class BenchRuntime : IDisposable
         }
     }
 
+    public IReadOnlyList<BenchObservationRecord> RecentObservations(int limit = 50)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (limit is < 1 or > ObservationHistoryCapacity)
+            throw new BenchValidationException(
+                $"Observation history limit must be between 1 and {ObservationHistoryCapacity}.");
+
+        lock (_observationHistorySync)
+        {
+            return _observationHistory
+                .Reverse()
+                .Take(limit)
+                .ToArray();
+        }
+    }
+
     public BenchOperationEvidence? GetOperationEvidence(string operationId)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -68,11 +103,26 @@ public sealed class BenchRuntime : IDisposable
         return _evidence.Get(operationId);
     }
 
+    public BenchObservationEvidence? GetObservationEvidence(string observationId)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(observationId);
+        return _observationEvidence.Get(observationId);
+    }
+
     public bool CancelOperation(string operationId)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
         return _activeOperations.TryGetValue(operationId, out var active)
+            && active.RequestCancel();
+    }
+
+    public bool CancelObservation(string observationId)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(observationId);
+        return _activeObservations.TryGetValue(observationId, out var active)
             && active.RequestCancel();
     }
 
@@ -208,6 +258,72 @@ public sealed class BenchRuntime : IDisposable
     }
 
     /// <summary>
+    /// Runs a non-mutating observation without taking target/resource mutation
+    /// gates. Observations can therefore run alongside flash/power operations,
+    /// while still receiving identity, cancellation, history and bounded
+    /// evidence owned by the resident Runtime.
+    /// </summary>
+    internal async Task<T> RunObservation<T>(
+        string targetId,
+        string observation,
+        IReadOnlyCollection<string> resourceIds,
+        Func<string, CancellationToken, Task<ObservationExecution<T>>> action,
+        CancellationToken requestCancellation)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(observation);
+        ArgumentNullException.ThrowIfNull(resourceIds);
+        ArgumentNullException.ThrowIfNull(action);
+        requestCancellation.ThrowIfCancellationRequested();
+
+        var normalizedResources = resourceIds
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var observationId = Guid.NewGuid().ToString("N");
+        var active = new ActiveObservation(
+            observationId,
+            targetId,
+            observation,
+            normalizedResources,
+            DateTimeOffset.UtcNow,
+            requestCancellation);
+
+        if (!_activeObservations.TryAdd(observationId, active))
+        {
+            active.Dispose();
+            throw new InvalidOperationException($"Could not register active observation '{observationId}'.");
+        }
+
+        try
+        {
+            var execution = await action(observationId, active.Token);
+            RecordObservationEvidence(active, execution.Evidence);
+            RecordObservation(active, "completed", null);
+            return execution.Result;
+        }
+        catch (OperationCanceledException)
+        {
+            RecordObservationEvidence(active, SerialObservationEvidenceExtractor.FromCancellation());
+            RecordObservation(active, "cancelled", "Observation cancelled.");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            RecordObservationEvidence(active, SerialObservationEvidenceExtractor.FromException(ex));
+            RecordObservation(active, "faulted", BoundHistoryError(ex.Message));
+            throw;
+        }
+        finally
+        {
+            _activeObservations.TryRemove(observationId, out _);
+            active.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Runs a safety action without taking target/resource mutation gates. The
     /// action is intentionally not cancellable once accepted, but it is still
     /// assigned an operation id and written to bounded audit/evidence stores.
@@ -310,6 +426,16 @@ public sealed class BenchRuntime : IDisposable
         IReadOnlyList<BenchEvidenceItem> items) =>
         _evidence.Put(operationId, targetId, operation, resourceIds, items);
 
+    private void RecordObservationEvidence(
+        ActiveObservation active,
+        IReadOnlyList<BenchEvidenceItem> items) =>
+        _observationEvidence.Put(
+            active.Id,
+            active.TargetId,
+            active.Kind,
+            active.ResourceIds,
+            items);
+
     private void RecordOperation(ActiveMutation active, string state, string? error) =>
         RecordOperation(
             active.Id,
@@ -330,9 +456,7 @@ public sealed class BenchRuntime : IDisposable
         string? error)
     {
         var completedAt = DateTimeOffset.UtcNow;
-        var durationMs = (int)Math.Min(
-            int.MaxValue,
-            Math.Max(0, (completedAt - startedAt).TotalMilliseconds));
+        var durationMs = DurationMs(startedAt, completedAt);
         var record = new BenchOperationRecord(
             operationId,
             targetId,
@@ -352,6 +476,33 @@ public sealed class BenchRuntime : IDisposable
         }
     }
 
+    private void RecordObservation(ActiveObservation active, string state, string? error)
+    {
+        var completedAt = DateTimeOffset.UtcNow;
+        var record = new BenchObservationRecord(
+            active.Id,
+            active.TargetId,
+            active.Kind,
+            active.ResourceIds,
+            active.StartedAtUtc,
+            completedAt,
+            DurationMs(active.StartedAtUtc, completedAt),
+            state,
+            error);
+
+        lock (_observationHistorySync)
+        {
+            _observationHistory.Enqueue(record);
+            while (_observationHistory.Count > ObservationHistoryCapacity)
+                _observationHistory.Dequeue();
+        }
+    }
+
+    private static int DurationMs(DateTimeOffset startedAt, DateTimeOffset completedAt) =>
+        (int)Math.Min(
+            int.MaxValue,
+            Math.Max(0, (completedAt - startedAt).TotalMilliseconds));
+
     private static string? BoundHistoryError(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return value;
@@ -367,12 +518,17 @@ public sealed class BenchRuntime : IDisposable
 
         foreach (var active in _activeOperations.Values)
             active.RequestCancel();
+        foreach (var active in _activeObservations.Values)
+            active.RequestCancel();
 
         Resources.Dispose();
 
         foreach (var active in _activeOperations.Values)
             active.Dispose();
         _activeOperations.Clear();
+        foreach (var active in _activeObservations.Values)
+            active.Dispose();
+        _activeObservations.Clear();
 
         foreach (var gate in _mutationGates.Values)
             gate.Dispose();
@@ -426,6 +582,95 @@ public sealed class BenchRuntime : IDisposable
             lock (_sync)
             {
                 return new BenchOperationInfo(
+                    Id,
+                    TargetId,
+                    Kind,
+                    ResourceIds,
+                    StartedAtUtc,
+                    _cancellationRequested || (_cancellation?.IsCancellationRequested ?? true));
+            }
+        }
+
+        public bool RequestCancel()
+        {
+            CancellationTokenSource? cancellation;
+            lock (_sync)
+            {
+                if (_cancellation is null)
+                    return false;
+
+                _cancellationRequested = true;
+                cancellation = _cancellation;
+            }
+
+            try
+            {
+                cancellation.Cancel();
+                return true;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
+        }
+
+        public void Dispose()
+        {
+            CancellationTokenSource? cancellation;
+            lock (_sync)
+            {
+                cancellation = _cancellation;
+                _cancellation = null;
+            }
+            cancellation?.Dispose();
+        }
+    }
+
+    private sealed class ActiveObservation : IDisposable
+    {
+        private readonly object _sync = new();
+        private CancellationTokenSource? _cancellation;
+        private bool _cancellationRequested;
+
+        public ActiveObservation(
+            string id,
+            string targetId,
+            string kind,
+            IReadOnlyList<string> resourceIds,
+            DateTimeOffset startedAtUtc,
+            CancellationToken requestCancellation)
+        {
+            Id = id;
+            TargetId = targetId;
+            Kind = kind;
+            ResourceIds = resourceIds;
+            StartedAtUtc = startedAtUtc;
+            _cancellation = CancellationTokenSource.CreateLinkedTokenSource(requestCancellation);
+        }
+
+        public string Id { get; }
+        public string TargetId { get; }
+        public string Kind { get; }
+        public IReadOnlyList<string> ResourceIds { get; }
+        public DateTimeOffset StartedAtUtc { get; }
+
+        public CancellationToken Token
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _cancellation?.Token
+                        ?? new CancellationToken(canceled: true);
+                }
+            }
+        }
+
+        public BenchObservationInfo Snapshot()
+        {
+            lock (_sync)
+            {
+                return new BenchObservationInfo(
                     Id,
                     TargetId,
                     Kind,
