@@ -28,7 +28,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-dotnet run --project src/Benchpilot.RuntimeHost -c Release --no-build >"$RUNTIME_LOG" 2>&1 &
+# Execute the already-built DLL directly so RUNTIME_PID is the process hosting
+# benchpilotd. `dotnet run` introduces a parent/child process boundary that makes
+# a SIGTERM-based lifecycle test ambiguous and can leave the actual host alive.
+dotnet src/Benchpilot.RuntimeHost/bin/Release/net10.0/benchpilotd.dll >"$RUNTIME_LOG" 2>&1 &
 RUNTIME_PID=$!
 
 ready=0
@@ -45,7 +48,7 @@ if [[ $ready -ne 1 ]]; then
 fi
 
 cli() {
-  dotnet run --project src/Benchpilot.Cli -c Release --no-build -- "$@"
+  dotnet src/Benchpilot.Cli/bin/Release/net10.0/benchpilot.dll "$@"
 }
 
 cli power on --voltage 12 --settle-ms 50 --json >/dev/null
