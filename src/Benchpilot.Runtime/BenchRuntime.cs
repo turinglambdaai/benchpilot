@@ -204,6 +204,10 @@ public sealed class BenchRuntime : IDisposable
         ArgumentNullException.ThrowIfNull(action);
         ct.ThrowIfCancellationRequested();
 
+        // Target ownership is the primary semantic boundary, so acquire it
+        // first. Resource gates follow in a deterministic order. Acquisition is
+        // non-blocking; if any later gate is busy we immediately release what
+        // we already acquired, so there is no wait-cycle/deadlock risk.
         var requests = new List<MutationGateRequest>
         {
             new($"target:{targetId}", "target", targetId),
@@ -212,13 +216,11 @@ public sealed class BenchRuntime : IDisposable
         requests.AddRange(resourceIds
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
             .Select(resourceId => new MutationGateRequest(
                 $"resource:{resourceId}",
                 "resource",
                 resourceId)));
-
-        requests.Sort(static (left, right) =>
-            StringComparer.OrdinalIgnoreCase.Compare(left.Key, right.Key));
 
         var acquired = new List<SemaphoreSlim>(requests.Count);
         try
