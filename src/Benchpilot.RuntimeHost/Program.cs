@@ -72,6 +72,38 @@ app.MapGet($"{BenchpilotApi.Prefix}/status", (BenchRuntime runtime) =>
         resources));
 });
 
+app.MapGet($"{BenchpilotApi.Prefix}/operations", (BenchRuntime runtime) =>
+{
+    var operations = runtime.ActiveOperations
+        .Select(x => new OperationSummary(
+            x.Id,
+            x.TargetId,
+            x.Kind,
+            x.ResourceIds,
+            x.StartedAtUtc,
+            x.CancellationRequested))
+        .ToArray();
+    return Results.Json(new OperationListResult(true, operations));
+});
+
+app.MapPost($"{BenchpilotApi.Prefix}/operations/{{operationId}}/cancel", (
+    string operationId,
+    BenchRuntime runtime) =>
+{
+    if (string.IsNullOrWhiteSpace(operationId))
+        return Results.BadRequest(new ApiError(false, "validation", "Operation id cannot be empty."));
+
+    if (!runtime.CancelOperation(operationId))
+    {
+        return Results.NotFound(new ApiError(
+            false,
+            "not_found",
+            $"Active operation '{operationId}' was not found."));
+    }
+
+    return Results.Json(new OperationCancelResult(true, operationId, true));
+});
+
 app.MapPost($"{BenchpilotApi.Prefix}/preflight", async (
     string? target,
     BenchRuntime runtime,
@@ -183,7 +215,19 @@ static async Task<IResult> Execute<T>(Func<Task<T>> operation)
     catch (BenchBusyException ex)
     {
         return Results.Json(
-            new ApiError(false, "busy", ex.Message),
+            new ApiError(
+                false,
+                "busy",
+                ex.Message,
+                ex.OwnerOperationId,
+                ex.BusyScope,
+                ex.BusyId),
+            statusCode: StatusCodes.Status409Conflict);
+    }
+    catch (OperationCanceledException)
+    {
+        return Results.Json(
+            new ApiError(false, "cancelled", "Operation cancelled."),
             statusCode: StatusCodes.Status409Conflict);
     }
     catch (InvalidOperationException ex)
