@@ -30,9 +30,16 @@ public sealed class BenchTarget
     public T Capability<T>(string capability) where T : class =>
         BoundCapability<T>(capability).Capability;
 
+    public Task<PowerOnResult> PowerOn(
+        double voltage,
+        int settleMs,
+        CancellationToken ct = default) =>
+        PowerOn(voltage, settleMs, null, ct);
+
     public async Task<PowerOnResult> PowerOn(
         double voltage,
         int settleMs,
+        int? deadlineMs,
         CancellationToken ct = default)
     {
         if (voltage <= 0)
@@ -65,7 +72,7 @@ public sealed class BenchTarget
             }
 
             return value;
-        }, ct);
+        }, ct, deadlineMs);
         TargetContextEvidence.RecordPowerOn(_runtime, Id, result);
         return result;
     }
@@ -75,7 +82,12 @@ public sealed class BenchTarget
     /// mutation gates so it cannot interrupt an active flash/reset or another
     /// target currently using the same physical power supply.
     /// </summary>
-    public async Task<PowerOffResult> PowerOff(CancellationToken ct = default)
+    public Task<PowerOffResult> PowerOff(CancellationToken ct = default) =>
+        PowerOff(null, ct);
+
+    public async Task<PowerOffResult> PowerOff(
+        int? deadlineMs,
+        CancellationToken ct = default)
     {
         var binding = BoundCapability<IPowerSupply>("power");
         var result = await _runtime.RunMutation(
@@ -83,7 +95,8 @@ public sealed class BenchTarget
             "power.off",
             [binding.ResourceId],
             operationCt => binding.Capability.PowerOff(operationCt),
-            ct);
+            ct,
+            deadlineMs);
         TargetContextEvidence.RecordPowerOff(_runtime, Id, result);
         return result;
     }
@@ -91,7 +104,8 @@ public sealed class BenchTarget
     /// <summary>
     /// Explicit safety escape hatch. It bypasses mutation gates, cannot be
     /// cancelled by a disconnected caller after Runtime accepts it, and is
-    /// always written to operation history for auditability.
+    /// always written to operation history for auditability. Emergency shutdown
+    /// deliberately has no Runtime deadline.
     /// </summary>
     public async Task<PowerOffResult> EmergencyPowerOff(CancellationToken ct = default)
     {
@@ -129,9 +143,16 @@ public sealed class BenchTarget
         return result;
     }
 
-    public async Task<FlashResult> Flash(
+    public Task<FlashResult> Flash(
         string firmware,
         string? confirmTarget = null,
+        CancellationToken ct = default) =>
+        Flash(firmware, confirmTarget, null, ct);
+
+    public async Task<FlashResult> Flash(
+        string firmware,
+        string? confirmTarget,
+        int? deadlineMs,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(firmware))
@@ -145,11 +166,18 @@ public sealed class BenchTarget
             "flash.write",
             [binding.ResourceId],
             operationCt => binding.Capability.Flash(firmware, operationCt),
-            ct);
+            ct,
+            deadlineMs);
     }
 
-    public async Task<ResetResult> Reset(
+    public Task<ResetResult> Reset(
         string? confirmTarget = null,
+        CancellationToken ct = default) =>
+        Reset(confirmTarget, null, ct);
+
+    public async Task<ResetResult> Reset(
+        string? confirmTarget,
+        int? deadlineMs,
         CancellationToken ct = default)
     {
         ValidateDestructiveConfirmation("reset", confirmTarget);
@@ -161,12 +189,20 @@ public sealed class BenchTarget
             "flash.reset",
             [binding.ResourceId],
             operationCt => binding.Capability.Reset(operationCt),
-            ct);
+            ct,
+            deadlineMs);
     }
 
     public Task<SerialOpenResult> SerialOpen(
         string? port = null,
         int? baud = null,
+        CancellationToken ct = default) =>
+        SerialOpen(port, baud, null, ct);
+
+    public Task<SerialOpenResult> SerialOpen(
+        string? port,
+        int? baud,
+        int? deadlineMs,
         CancellationToken ct = default)
     {
         if (port is not null && string.IsNullOrWhiteSpace(port))
@@ -187,12 +223,20 @@ public sealed class BenchTarget
                     identified,
                     SerialObservationEvidenceExtractor.FromOpen(identified));
             },
-            ct);
+            ct,
+            deadlineMs);
     }
 
     public Task<SerialWaitResult> SerialWaitFor(
         string pattern,
         int timeoutMs,
+        CancellationToken ct = default) =>
+        SerialWaitFor(pattern, timeoutMs, null, ct);
+
+    public Task<SerialWaitResult> SerialWaitFor(
+        string pattern,
+        int timeoutMs,
+        int? deadlineMs,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(pattern))
@@ -237,12 +281,20 @@ public sealed class BenchTarget
 
                 return new ObservationExecution<SerialWaitResult>(identified, evidence);
             },
-            ct);
+            ct,
+            deadlineMs);
     }
 
     public Task<SerialWindowResult> SerialReadWindow(
         int lines,
         string? filter = null,
+        CancellationToken ct = default) =>
+        SerialReadWindow(lines, filter, null, ct);
+
+    public Task<SerialWindowResult> SerialReadWindow(
+        int lines,
+        string? filter,
+        int? deadlineMs,
         CancellationToken ct = default)
     {
         if (lines <= 0)
@@ -261,10 +313,17 @@ public sealed class BenchTarget
                     identified,
                     SerialObservationEvidenceExtractor.FromWindow(identified));
             },
-            ct);
+            ct,
+            deadlineMs);
     }
 
-    public Task<SerialSendResult> SerialSend(string data, CancellationToken ct = default)
+    public Task<SerialSendResult> SerialSend(string data, CancellationToken ct = default) =>
+        SerialSend(data, null, ct);
+
+    public Task<SerialSendResult> SerialSend(
+        string data,
+        int? deadlineMs,
+        CancellationToken ct = default)
     {
         if (data is null)
             throw new BenchValidationException("Serial data cannot be null.");
@@ -282,7 +341,8 @@ public sealed class BenchTarget
                     identified,
                     SerialObservationEvidenceExtractor.FromSend(identified, data.Length));
             },
-            ct);
+            ct,
+            deadlineMs);
     }
 
     private (string ResourceId, T Capability) BoundCapability<T>(string capability) where T : class

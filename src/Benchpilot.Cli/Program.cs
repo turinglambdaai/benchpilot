@@ -39,6 +39,7 @@ internal static class BenchpilotCli
         {
             using var client = new BenchClient(BenchClient.ResolveEndpoint(parsed.Get("endpoint")));
             var target = parsed.Get("target");
+            var deadlineMs = parsed.GetNullableInt("deadline-ms");
             var command = parsed.Positionals[0].ToLowerInvariant();
             var subcommand = parsed.Positionals.Count > 1
                 ? parsed.Positionals[1].ToLowerInvariant()
@@ -134,14 +135,14 @@ internal static class BenchpilotCli
                 {
                     var voltage = parsed.GetDouble("voltage", 12);
                     var settleMs = parsed.GetInt("settle-ms", 2000);
-                    var result = await client.PowerOn(voltage, settleMs, target, cts.Token);
+                    var result = await client.PowerOn(voltage, settleMs, target, deadlineMs, cts.Token);
                     Print(result, parsed.Json);
                     return result.Ok ? 0 : 4;
                 }
 
                 case ("power", "off"):
                 {
-                    var result = await client.PowerOff(target, cts.Token);
+                    var result = await client.PowerOff(target, deadlineMs, cts.Token);
                     Print(result, parsed.Json);
                     return result.Ok ? 0 : 4;
                 }
@@ -175,7 +176,12 @@ internal static class BenchpilotCli
                 {
                     var firmware = RequirePositional(parsed, 2, "firmware path");
                     var confirmTarget = parsed.Get("confirm-target");
-                    var result = await client.Flash(firmware, target, confirmTarget, cts.Token);
+                    var result = await client.Flash(
+                        firmware,
+                        target,
+                        confirmTarget,
+                        deadlineMs,
+                        cts.Token);
                     Print(result, parsed.Json);
                     return result.Ok ? 0 : 4;
                 }
@@ -183,7 +189,7 @@ internal static class BenchpilotCli
                 case ("flash", "reset"):
                 {
                     var confirmTarget = parsed.Get("confirm-target");
-                    var result = await client.Reset(target, confirmTarget, cts.Token);
+                    var result = await client.Reset(target, confirmTarget, deadlineMs, cts.Token);
                     Print(result, parsed.Json);
                     return result.Ok ? 0 : 4;
                 }
@@ -192,7 +198,7 @@ internal static class BenchpilotCli
                 {
                     var port = parsed.Get("port");
                     var baud = parsed.GetNullableInt("baud");
-                    var result = await client.SerialOpen(port, baud, target, cts.Token);
+                    var result = await client.SerialOpen(port, baud, target, deadlineMs, cts.Token);
                     Print(result, parsed.Json);
                     return result.Ok ? 0 : 4;
                 }
@@ -201,7 +207,12 @@ internal static class BenchpilotCli
                 {
                     var pattern = RequirePositional(parsed, 2, "pattern");
                     var timeoutMs = parsed.GetInt("timeout-ms", 10000);
-                    var result = await client.SerialWaitFor(pattern, timeoutMs, target, cts.Token);
+                    var result = await client.SerialWaitFor(
+                        pattern,
+                        timeoutMs,
+                        target,
+                        deadlineMs,
+                        cts.Token);
                     Print(result, parsed.Json);
                     if (!result.Ok) return 4;
                     return result.Matched ? 0 : 1;
@@ -211,7 +222,12 @@ internal static class BenchpilotCli
                 {
                     var lines = parsed.GetInt("lines", 50);
                     var filter = parsed.Get("filter");
-                    var result = await client.SerialReadWindow(lines, filter, target, cts.Token);
+                    var result = await client.SerialReadWindow(
+                        lines,
+                        filter,
+                        target,
+                        deadlineMs,
+                        cts.Token);
                     Print(result, parsed.Json);
                     return result.Ok ? 0 : 4;
                 }
@@ -219,7 +235,7 @@ internal static class BenchpilotCli
                 case ("serial", "send"):
                 {
                     var data = RequirePositional(parsed, 2, "data");
-                    var result = await client.SerialSend(data, target, cts.Token);
+                    var result = await client.SerialSend(data, target, deadlineMs, cts.Token);
                     Print(result, parsed.Json);
                     return result.Ok ? 0 : 4;
                 }
@@ -237,10 +253,13 @@ internal static class BenchpilotCli
                 ex.Message,
                 ex.OperationId,
                 ex.BusyScope,
-                ex.BusyId), parsed.Json);
+                ex.BusyId,
+                ex.DeadlineMs,
+                ex.DeadlineAtUtc), parsed.Json);
             return ex.Code switch
             {
                 "busy" => 5,
+                "deadline_exceeded" => 6,
                 "cancelled" => 1,
                 "runtime_state" => 4,
                 _ => ex.StatusCode switch
@@ -301,27 +320,27 @@ Usage:
   benchpilot evidence <operation-id> [--json] [--endpoint URL]
   benchpilot cancel <operation-id>   [--json] [--endpoint URL]
 
-  benchpilot observe list                    [--json] [--endpoint URL]
-  benchpilot observe history                 [--limit N] [--json] [--endpoint URL]
+  benchpilot observe list                      [--json] [--endpoint URL]
+  benchpilot observe history                   [--limit N] [--json] [--endpoint URL]
   benchpilot observe evidence <observation-id> [--json] [--endpoint URL]
-  benchpilot observe cancel <observation-id> [--json] [--endpoint URL]
+  benchpilot observe cancel <observation-id>   [--json] [--endpoint URL]
 
   benchpilot preflight              [--target ID] [--json]
   benchpilot bench validate         [--target ID] [--json]
 
-  benchpilot power on            [--target ID] [--voltage V] [--settle-ms N] [--json]
-  benchpilot power off           [--target ID] [--json]
+  benchpilot power on            [--target ID] [--voltage V] [--settle-ms N] [--deadline-ms N] [--json]
+  benchpilot power off           [--target ID] [--deadline-ms N] [--json]
   benchpilot power emergency-off [--target ID] [--json]
   benchpilot power current       [--target ID] [--window-ms N] [--json]
   benchpilot power check         [--target ID] [--lt-ma N] [--gt-ma N] [--json]
 
-  benchpilot flash write <firmware> [--target ID] [--confirm-target ID] [--json]
-  benchpilot flash reset            [--target ID] [--confirm-target ID] [--json]
+  benchpilot flash write <firmware> [--target ID] [--confirm-target ID] [--deadline-ms N] [--json]
+  benchpilot flash reset            [--target ID] [--confirm-target ID] [--deadline-ms N] [--json]
 
-  benchpilot serial open            [--target ID] [--port NAME] [--baud N] [--json]
-  benchpilot serial wait <pattern>  [--target ID] [--timeout-ms N] [--json]
-  benchpilot serial window          [--target ID] [--lines N] [--filter TEXT] [--json]
-  benchpilot serial send <data>     [--target ID] [--json]
+  benchpilot serial open            [--target ID] [--port NAME] [--baud N] [--deadline-ms N] [--json]
+  benchpilot serial wait <pattern>  [--target ID] [--timeout-ms N] [--deadline-ms N] [--json]
+  benchpilot serial window          [--target ID] [--lines N] [--filter TEXT] [--deadline-ms N] [--json]
+  benchpilot serial send <data>     [--target ID] [--deadline-ms N] [--json]
 
 Mutating operations and observations are intentionally separate. `operations`
 uses target/resource gates for state-changing work. `observe ...` reports
@@ -332,6 +351,13 @@ compact mutation evidence bundle. `observe history/evidence` provide the same
 bounded correlation for serial observations without converting them into locks.
 A failed/unmatched serial wait captures only a small tail of the Runtime-owned
 serial line buffer, never the unbounded raw stream.
+
+`--deadline-ms` is a Runtime execution budget for supported mutation/observation
+operations. It is different from `serial wait --timeout-ms`: the latter is a
+semantic wait window and a normal unmatched assertion returns exit code 1;
+exceeding the Runtime deadline is an execution failure with code
+`deadline_exceeded` and exit code 6. Emergency power-off deliberately ignores
+Runtime deadlines so an accepted safety action cannot be abandoned by a shell.
 
 `preflight` is non-destructive. It checks configured resource readiness without
 power-cycling, resetting or flashing the target.
@@ -363,6 +389,7 @@ Exit codes:
   3 target/resource/operation/observation/evidence not found
   4 runtime/device unavailable or device/preflight error
   5 target/resource busy (another mutating operation is active)
+  6 Runtime deadline exceeded
 """);
     }
 }

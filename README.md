@@ -12,7 +12,7 @@ Build -> Flash -> Run -> Observe -> Diagnose -> Fix
 
 BenchPilot is **not** a CANoe clone. It does not aim to reproduce full vehicle-network simulation, CAPL, ADAS simulation or hundreds of analysis windows. CAN/CAN FD, DBC, ISO-TP, UDS and DoIP are added when they help complete the ECU development loop.
 
-> Current status: **real-bench software foundation ready for physical validation**. The resident Runtime, versioned local API, CLI and MCP adapter share one hardware state and safety boundary. Real `system-serial`, J-Link Commander and SCPI power drivers, non-destructive preflight/readiness checks, bounded operation/observation evidence and graceful Runtime shutdown are implemented. Windows/Linux CI is green. The next gate is validation against an actual ECU + J-Link + serial + bench supply, not adding more protocols.
+> Current status: **real-bench software foundation ready for physical validation**. The resident Runtime, versioned local API, CLI and MCP adapter share one hardware state and safety boundary. Real `system-serial`, J-Link Commander and SCPI power drivers, non-destructive preflight/readiness checks, bounded operation/observation evidence, Runtime-owned execution deadlines and graceful Runtime shutdown are implemented. Windows/Linux CI is green. The next gate is validation against an actual ECU + J-Link + serial + bench supply, not adding more protocols.
 
 ## Why BenchPilot?
 
@@ -89,7 +89,7 @@ The foundation transport is HTTP JSON bound to loopback only. `benchpilotd` refu
 The simulator behaves like one small physical bench:
 
 - virtual bench supply with inrush -> settle -> idle current;
-- virtual firmware boot log;
+- virtual firmware boot log with time-based line visibility;
 - flash/reset behavior;
 - shared state across power, serial and flash;
 - context-compressed serial wait observations;
@@ -153,6 +153,18 @@ dotnet run --project src/Benchpilot.Cli -- power check --lt-ma 100 --json
 dotnet run --project src/Benchpilot.Cli -- power off --json
 ```
 
+Long mutations and serial observations can also carry a Runtime execution budget:
+
+```bash
+dotnet run --project src/Benchpilot.Cli -- \
+  flash write build/app.elf --deadline-ms 30000 --json
+
+dotnet run --project src/Benchpilot.Cli -- \
+  serial wait Ready --timeout-ms 5000 --deadline-ms 7000 --json
+```
+
+`--deadline-ms` is deliberately different from a device/protocol timeout or `serial wait --timeout-ms`. The serial timeout is the semantic wait window: reaching it normally produces an unmatched assertion. The Runtime deadline is the outer execution budget shared by CLI/MCP/Agent workflows. When it expires, Runtime records `deadline_exceeded` in history and evidence and rejects even a late success returned by a driver that ignored cancellation.
+
 ### 3. Validate a physical bench before touching the ECU
 
 Start from the checked-in example profile and replace every `CHANGE_ME` value with your actual bench information:
@@ -213,7 +225,7 @@ With `benchpilotd` still running:
 dotnet run --project src/Benchpilot.Mcp
 ```
 
-The MCP process is only a stdio protocol adapter. It calls the same resident Runtime as CLI, so an Agent and a terminal observe the same ECU/bench state. The MCP `BenchValidate` tool exposes the same non-destructive readiness report as CLI.
+The MCP process is only a stdio protocol adapter. It calls the same resident Runtime as CLI, so an Agent and a terminal observe the same ECU/bench state. The MCP `BenchValidate` tool exposes the same non-destructive readiness report as CLI. Long power/flash/serial tools also expose an optional `deadlineMs`, enforced and audited by Runtime rather than by the MCP process.
 
 Example Agent task:
 
@@ -234,9 +246,12 @@ CLI exit codes are intentionally stable and machine-friendly:
 3 target/resource/operation/observation/evidence not found
 4 runtime/device unavailable or device/preflight error
 5 target/resource busy because another mutating operation is active
+6 Runtime execution deadline exceeded
 ```
 
 A `bench validate` exit code of `1` does **not** mean the readiness API failed. It means the report executed successfully but one or more blocking readiness checks failed; inspect the JSON checks and remediation fields.
+
+A deadline failure is returned as `code=deadline_exceeded` with `deadlineMs` and `deadlineAtUtc`; active and history records also expose deadline metadata. Emergency power-off intentionally has no Runtime deadline once accepted, because a safety shutdown must not be abandoned just because a shell budget expired.
 
 ## Resource / target profile
 
@@ -318,7 +333,7 @@ Future CAN/protocol/Flash/Studio projects plug into these boundaries rather than
 Near-term work remains a vertical slice rather than broad protocol coverage:
 
 1. validate `system-serial` + J-Link + SCPI power against one physical ECU and check in a repeatable known-good profile;
-2. correlate power/current context with flash/boot failures and strengthen real-bench evidence;
+2. add a richer vendor-neutral device/runtime error taxonomy and production-grade evidence/artifact references;
 3. CAN/CAN FD + DBC observations via SocketCAN and PCAN;
 4. ISO-TP + UDS;
 5. professional, hardware-aware UDS Flash Engine;

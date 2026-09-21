@@ -120,7 +120,9 @@ app.MapGet($"{BenchpilotApi.Prefix}/operations", (BenchRuntime runtime) =>
             x.Kind,
             x.ResourceIds,
             x.StartedAtUtc,
-            x.CancellationRequested))
+            x.DeadlineAtUtc,
+            x.CancellationRequested,
+            x.DeadlineExceeded))
         .ToArray();
     return Results.Json(new OperationListResult(true, operations));
 });
@@ -140,6 +142,7 @@ app.MapGet($"{BenchpilotApi.Prefix}/operations/history", (
                 x.StartedAtUtc,
                 x.CompletedAtUtc,
                 x.DurationMs,
+                x.DeadlineAtUtc,
                 x.State,
                 x.Error))
             .ToArray();
@@ -207,7 +210,9 @@ app.MapGet($"{BenchpilotApi.Prefix}/observations", (BenchRuntime runtime) =>
             x.Kind,
             x.ResourceIds,
             x.StartedAtUtc,
-            x.CancellationRequested))
+            x.DeadlineAtUtc,
+            x.CancellationRequested,
+            x.DeadlineExceeded))
         .ToArray();
     return Results.Json(new ObservationListResult(true, observations));
 });
@@ -227,6 +232,7 @@ app.MapGet($"{BenchpilotApi.Prefix}/observations/history", (
                 x.StartedAtUtc,
                 x.CompletedAtUtc,
                 x.DurationMs,
+                x.DeadlineAtUtc,
                 x.State,
                 x.Error))
             .ToArray();
@@ -299,16 +305,22 @@ app.MapPost($"{BenchpilotApi.Prefix}/validate", async (
 
 app.MapPost($"{BenchpilotApi.Prefix}/power/on", async (
     string? target,
+    int? deadlineMs,
     PowerOnRequest request,
     BenchRuntime runtime,
     CancellationToken ct) =>
-    await Execute(() => runtime.Target(target).PowerOn(request.Voltage, request.SettleMs, ct)));
+    await Execute(() => runtime.Target(target).PowerOn(
+        request.Voltage,
+        request.SettleMs,
+        deadlineMs,
+        ct)));
 
 app.MapPost($"{BenchpilotApi.Prefix}/power/off", async (
     string? target,
+    int? deadlineMs,
     BenchRuntime runtime,
     CancellationToken ct) =>
-    await Execute(() => runtime.Target(target).PowerOff(ct)));
+    await Execute(() => runtime.Target(target).PowerOff(deadlineMs, ct)));
 
 app.MapPost($"{BenchpilotApi.Prefix}/power/emergency-off", async (
     string? target,
@@ -332,45 +344,73 @@ app.MapPost($"{BenchpilotApi.Prefix}/power/current/check", async (
 
 app.MapPost($"{BenchpilotApi.Prefix}/flash/write", async (
     string? target,
+    int? deadlineMs,
     FlashRequest request,
     BenchRuntime runtime,
     CancellationToken ct) =>
-    await Execute(() => runtime.Target(target).Flash(request.Firmware, request.ConfirmTarget, ct)));
+    await Execute(() => runtime.Target(target).Flash(
+        request.Firmware,
+        request.ConfirmTarget,
+        deadlineMs,
+        ct)));
 
 app.MapPost($"{BenchpilotApi.Prefix}/flash/reset", async (
     string? target,
+    int? deadlineMs,
     ResetRequest request,
     BenchRuntime runtime,
     CancellationToken ct) =>
-    await Execute(() => runtime.Target(target).Reset(request.ConfirmTarget, ct)));
+    await Execute(() => runtime.Target(target).Reset(
+        request.ConfirmTarget,
+        deadlineMs,
+        ct)));
 
 app.MapPost($"{BenchpilotApi.Prefix}/serial/open", async (
     string? target,
+    int? deadlineMs,
     SerialOpenRequest request,
     BenchRuntime runtime,
     CancellationToken ct) =>
-    await Execute(() => runtime.Target(target).SerialOpen(request.Port, request.Baud, ct)));
+    await Execute(() => runtime.Target(target).SerialOpen(
+        request.Port,
+        request.Baud,
+        deadlineMs,
+        ct)));
 
 app.MapPost($"{BenchpilotApi.Prefix}/serial/wait", async (
     string? target,
+    int? deadlineMs,
     SerialWaitRequest request,
     BenchRuntime runtime,
     CancellationToken ct) =>
-    await Execute(() => runtime.Target(target).SerialWaitFor(request.Pattern, request.TimeoutMs, ct)));
+    await Execute(() => runtime.Target(target).SerialWaitFor(
+        request.Pattern,
+        request.TimeoutMs,
+        deadlineMs,
+        ct)));
 
 app.MapPost($"{BenchpilotApi.Prefix}/serial/window", async (
     string? target,
+    int? deadlineMs,
     SerialWindowRequest request,
     BenchRuntime runtime,
     CancellationToken ct) =>
-    await Execute(() => runtime.Target(target).SerialReadWindow(request.Lines, request.Filter, ct)));
+    await Execute(() => runtime.Target(target).SerialReadWindow(
+        request.Lines,
+        request.Filter,
+        deadlineMs,
+        ct)));
 
 app.MapPost($"{BenchpilotApi.Prefix}/serial/send", async (
     string? target,
+    int? deadlineMs,
     SerialSendRequest request,
     BenchRuntime runtime,
     CancellationToken ct) =>
-    await Execute(() => runtime.Target(target).SerialSend(request.Data, ct)));
+    await Execute(() => runtime.Target(target).SerialSend(
+        request.Data,
+        deadlineMs,
+        ct)));
 
 app.Logger.LogInformation(
     "BenchPilot Runtime '{BenchName}' listening on {Endpoint}. Profile: {Profile}. Drivers: {Drivers}",
@@ -410,6 +450,17 @@ static async Task<IResult> Execute<T>(Func<Task<T>> operation)
                 ex.BusyScope,
                 ex.BusyId),
             statusCode: StatusCodes.Status409Conflict);
+    }
+    catch (BenchDeadlineExceededException ex)
+    {
+        return Results.Json(
+            new ApiError(
+                false,
+                "deadline_exceeded",
+                ex.Message,
+                DeadlineMs: ex.DeadlineMs,
+                DeadlineAtUtc: ex.DeadlineAtUtc),
+            statusCode: StatusCodes.Status408RequestTimeout);
     }
     catch (OperationCanceledException)
     {

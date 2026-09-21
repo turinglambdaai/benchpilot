@@ -46,22 +46,26 @@ These are now Runtime properties shared by CLI, MCP and future Studio clients, r
 - [x] active operation IDs with target, operation kind, resources and start time;
 - [x] cooperative cancellation through Runtime into supported drivers;
 - [x] busy responses identify the owning operation when available;
-- [x] bounded in-memory operation history with `completed` / `cancelled` / `faulted` execution states;
+- [x] bounded in-memory operation history with `completed` / `cancelled` / `faulted` / `deadline_exceeded` execution states;
 - [x] bounded mutation evidence keyed by operation ID;
 - [x] non-mutating observation IDs/history/cancellation/evidence for serial operations;
 - [x] bounded serial failure windows sourced from the driver's local line buffer;
 - [x] bounded cross-operation target context (power/current) correlated into flash/reset and boot-wait failures;
+- [x] Runtime-owned execution deadlines for long mutations/observations, distinct from caller cancellation and device/semantic timeouts;
+- [x] active/history/evidence/API/CLI/MCP deadline metadata with stable `deadline_exceeded` classification;
+- [x] late success from a driver that ignores cancellation is rejected after a Runtime deadline expires;
 - [x] explicit normal shutdown versus emergency shutdown semantics;
-- [x] emergency power-off bypasses mutation gates, is non-cancellable once accepted, and is audited;
+- [x] emergency power-off bypasses mutation gates, is non-cancellable once accepted, has no Runtime deadline, and is audited;
 - [x] destructive flash/reset confirmation policy;
 - [x] maximum voltage/current bench safety enforcement;
-- [x] stable validation / not-found / busy / cancelled / runtime-state API error classes;
+- [x] stable validation / not-found / busy / cancelled / deadline-exceeded / runtime-state API error classes;
 - [x] graceful host shutdown requests cancellation and drains Runtime-owned active work before releasing hardware resources;
+
+Runtime deadline semantics are intentionally separate from protocol/device timing. For example, `serial wait --timeout-ms` is the semantic observation window and may return a normal unmatched assertion, while `--deadline-ms` is the outer Runtime execution budget and produces `deadline_exceeded` when exhausted. Device drivers may still enforce narrower hardware/tool-specific timeouts internally.
 
 Still intentionally incomplete:
 
 - [ ] richer device/runtime error taxonomy for vendor-specific failures without leaking vendor SDK types into Core;
-- [ ] one Runtime-level deadline/timeout model across all long operations (drivers already enforce bounded device timeouts where required);
 - [ ] persistent evidence/artifact storage beyond the current bounded in-memory Runtime stores;
 - [ ] remote/team leases — local mutation locks are **not** a substitute for authenticated remote ownership.
 

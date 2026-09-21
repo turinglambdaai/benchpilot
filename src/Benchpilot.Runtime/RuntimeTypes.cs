@@ -15,6 +15,27 @@ public sealed class BenchTargetNotFoundException : BenchRuntimeException
     public BenchTargetNotFoundException(string message) : base(message) { }
 }
 
+public sealed class BenchDeadlineExceededException : BenchRuntimeException
+{
+    public BenchDeadlineExceededException(
+        string targetId,
+        string operation,
+        int deadlineMs,
+        DateTimeOffset deadlineAtUtc)
+        : base($"Target '{targetId}' operation '{operation}' exceeded its Runtime deadline of {deadlineMs} ms.")
+    {
+        TargetId = targetId;
+        Operation = operation;
+        DeadlineMs = deadlineMs;
+        DeadlineAtUtc = deadlineAtUtc;
+    }
+
+    public string TargetId { get; }
+    public string Operation { get; }
+    public int DeadlineMs { get; }
+    public DateTimeOffset DeadlineAtUtc { get; }
+}
+
 public sealed class BenchBusyException : BenchRuntimeException
 {
     public BenchBusyException(
@@ -81,7 +102,9 @@ public sealed record BenchOperationInfo(
     string Kind,
     IReadOnlyList<string> ResourceIds,
     DateTimeOffset StartedAtUtc,
-    bool CancellationRequested);
+    DateTimeOffset? DeadlineAtUtc,
+    bool CancellationRequested,
+    bool DeadlineExceeded);
 
 public sealed record BenchOperationRecord(
     string Id,
@@ -91,5 +114,6 @@ public sealed record BenchOperationRecord(
     DateTimeOffset StartedAtUtc,
     DateTimeOffset CompletedAtUtc,
     int DurationMs,
+    DateTimeOffset? DeadlineAtUtc,
     string State,
     string? Error = null);

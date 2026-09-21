@@ -111,6 +111,20 @@ internal static class SerialObservationEvidenceExtractor
             "Observation cancelled.")
     ];
 
+    public static IReadOnlyList<BenchEvidenceItem> FromDeadline(
+        int deadlineMs,
+        DateTimeOffset deadlineAtUtc) =>
+    [
+        Item(
+            "runtime.deadline",
+            "Observation exceeded its Runtime deadline.",
+            metadata: new Dictionary<string, string>
+            {
+                ["deadlineMs"] = deadlineMs.ToString(CultureInfo.InvariantCulture),
+                ["deadlineAtUtc"] = deadlineAtUtc.ToString("O", CultureInfo.InvariantCulture),
+            })
+    ];
+
     public static IReadOnlyList<BenchEvidenceItem> FromException(Exception exception)
     {
         ArgumentNullException.ThrowIfNull(exception);

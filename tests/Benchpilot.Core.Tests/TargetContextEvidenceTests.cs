@@ -20,14 +20,14 @@ public class TargetContextEvidenceTests
         var flash = await target.Flash("app.hex");
         Assert.False(flash.Ok);
 
-        var operation = Assert.Single(runtime.RecentOperations(10).Where(x => x.Kind == "flash.write"));
+        var operation = Assert.Single(runtime.RecentOperations(10), x => x.Kind == "flash.write");
         var evidence = Assert.IsType<BenchOperationEvidence>(runtime.GetOperationEvidence(operation.Id));
         Assert.Contains(evidence.Items, x => x.Kind == "flash.result");
         Assert.Contains(evidence.Items, x => x.Kind == "context.current-check");
         Assert.Contains(evidence.Items, x => x.Kind == "context.current-reading");
         Assert.Contains(evidence.Items, x => x.Kind == "context.power-on");
 
-        var power = Assert.Single(evidence.Items.Where(x => x.Kind == "context.power-on"));
+        var power = Assert.Single(evidence.Items, x => x.Kind == "context.power-on");
         Assert.Equal("12.4", power.Metadata!["voltageV"]);
         Assert.Equal("184", power.Metadata["currentMa"]);
         Assert.True(power.Metadata.ContainsKey("capturedAtUtc"));
@@ -69,7 +69,7 @@ public class TargetContextEvidenceTests
         var flash = await target.Flash("app.hex");
         Assert.True(flash.Ok);
 
-        var operation = Assert.Single(runtime.RecentOperations(10).Where(x => x.Kind == "flash.write"));
+        var operation = Assert.Single(runtime.RecentOperations(10), x => x.Kind == "flash.write");
         var evidence = Assert.IsType<BenchOperationEvidence>(runtime.GetOperationEvidence(operation.Id));
         Assert.Single(evidence.Items);
         Assert.Equal("flash.result", evidence.Items[0].Kind);
@@ -90,7 +90,7 @@ public class TargetContextEvidenceTests
         }
 
         await target.Flash("app.hex");
-        var operation = Assert.Single(runtime.RecentOperations(10).Where(x => x.Kind == "flash.write"));
+        var operation = Assert.Single(runtime.RecentOperations(10), x => x.Kind == "flash.write");
         var evidence = Assert.IsType<BenchOperationEvidence>(runtime.GetOperationEvidence(operation.Id));
         var context = evidence.Items.Where(x => x.Kind.StartsWith("context.", StringComparison.Ordinal)).ToArray();
 
@@ -112,7 +112,7 @@ public class TargetContextEvidenceTests
         await target.PowerOff();
         await target.Flash("app.hex");
 
-        var operation = Assert.Single(runtime.RecentOperations(10).Where(x => x.Kind == "flash.write"));
+        var operation = Assert.Single(runtime.RecentOperations(10), x => x.Kind == "flash.write");
         var evidence = Assert.IsType<BenchOperationEvidence>(runtime.GetOperationEvidence(operation.Id));
         var context = evidence.Items.Where(x => x.Kind.StartsWith("context.", StringComparison.Ordinal)).ToArray();
 

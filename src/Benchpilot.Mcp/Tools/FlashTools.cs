@@ -17,13 +17,15 @@ internal sealed class FlashTools
     public async Task<FlashResult> Flash(
         [Description("Path to the firmware image, e.g. build/app.elf")] string firmware = "build/app.elf",
         [Description("Semantic target id. Omit to use defaultTarget when allowed.")] string? target = null,
-        [Description("Explicit destructive-operation confirmation. When required by policy, this must exactly match the resolved target id.")] string? confirmTarget = null)
-        => await _client.Flash(firmware, target, confirmTarget, CancellationToken.None);
+        [Description("Explicit destructive-operation confirmation. When required by policy, this must exactly match the resolved target id.")] string? confirmTarget = null,
+        [Description("Optional Runtime execution deadline in milliseconds. The Runtime records deadline_exceeded separately from caller cancellation and driver/device errors.")] int? deadlineMs = null)
+        => await _client.Flash(firmware, target, confirmTarget, deadlineMs, CancellationToken.None);
 
     [McpServerTool]
     [Description("Reset the target through its configured flash/debug capability. Profiles may require confirmTarget to exactly match the semantic target id.")]
     public async Task<ResetResult> Reset(
         [Description("Semantic target id. Omit to use defaultTarget when allowed.")] string? target = null,
-        [Description("Explicit destructive-operation confirmation. When required by policy, this must exactly match the resolved target id.")] string? confirmTarget = null)
-        => await _client.Reset(target, confirmTarget, CancellationToken.None);
+        [Description("Explicit destructive-operation confirmation. When required by policy, this must exactly match the resolved target id.")] string? confirmTarget = null,
+        [Description("Optional Runtime execution deadline in milliseconds.")] int? deadlineMs = null)
+        => await _client.Reset(target, confirmTarget, deadlineMs, CancellationToken.None);
 }

@@ -98,7 +98,7 @@ internal static class OperationEvidenceExtractor
 
     // Explicit user/runtime cancellation is already self-explanatory and is
     // intentionally kept minimal. Cross-operation context is reserved for
-    // device-error or infrastructure-fault diagnosis.
+    // device-error, deadline or infrastructure-fault diagnosis.
     public static IReadOnlyList<BenchEvidenceItem> FromCancellation() =>
     [
         Item(
@@ -106,6 +106,21 @@ internal static class OperationEvidenceExtractor
             "Operation was cancelled before normal completion.",
             "Operation cancelled.")
     ];
+
+    public static IReadOnlyList<BenchEvidenceItem> FromDeadline(
+        int deadlineMs,
+        DateTimeOffset deadlineAtUtc) =>
+        TargetContextEvidence.AppendFailureContext(
+        [
+            Item(
+                "runtime.deadline",
+                "Operation exceeded its Runtime deadline.",
+                metadata: new Dictionary<string, string>
+                {
+                    ["deadlineMs"] = deadlineMs.ToString(CultureInfo.InvariantCulture),
+                    ["deadlineAtUtc"] = deadlineAtUtc.ToString("O", CultureInfo.InvariantCulture),
+                })
+        ]);
 
     public static IReadOnlyList<BenchEvidenceItem> FromException(Exception exception)
     {

@@ -105,6 +105,46 @@ assert "capturedAtUtc" in ctx["metadata"]
 assert "ageMs" in ctx["metadata"]
 '
 
+# Runtime deadlines are not semantic serial timeouts. Make the execution budget
+# much shorter than the wait window and require the distinct CLI/API/history/
+# evidence classification all the way through the resident daemon.
+set +e
+deadline_json="$(cli serial wait __BENCHPILOT_DEADLINE__ --timeout-ms 5000 --deadline-ms 100 --json)"
+deadline_code=$?
+set -e
+printf '%s\n' "$deadline_json"
+if [[ $deadline_code -ne 6 ]]; then
+  echo "expected Runtime deadline to return exit code 6, got $deadline_code" >&2
+  exit 1
+fi
+printf '%s' "$deadline_json" | python3 -c '
+import json,sys
+r=json.load(sys.stdin)
+assert r["ok"] is False
+assert r["code"] == "deadline_exceeded"
+assert r["deadlineMs"] == 100
+assert r.get("deadlineAtUtc")
+'
+
+deadline_history="$(cli observe history --limit 1 --json)"
+printf '%s\n' "$deadline_history"
+deadline_observation_id="$(printf '%s' "$deadline_history" | python3 -c '
+import json,sys
+r=json.load(sys.stdin)["observations"][0]
+assert r["state"] == "deadline_exceeded"
+assert r.get("deadlineAtUtc")
+print(r["id"])
+')"
+deadline_evidence="$(cli observe evidence "$deadline_observation_id" --json)"
+printf '%s\n' "$deadline_evidence"
+printf '%s' "$deadline_evidence" | python3 -c '
+import json,sys
+r=json.load(sys.stdin)
+item=next(x for x in r["items"] if x["kind"] == "runtime.deadline")
+assert item["metadata"]["deadlineMs"] == "100"
+assert item["metadata"].get("deadlineAtUtc")
+'
+
 cli power check --lt-ma 100 --json
 cli power off --json
 # Completed mutations and observations remain available as bounded Runtime audit trails.

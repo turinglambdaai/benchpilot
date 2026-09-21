@@ -14,7 +14,9 @@ public sealed class BenchClientException : Exception
         string message,
         string? operationId = null,
         string? busyScope = null,
-        string? busyId = null)
+        string? busyId = null,
+        int? deadlineMs = null,
+        DateTimeOffset? deadlineAtUtc = null)
         : base(message)
     {
         StatusCode = statusCode;
@@ -22,6 +24,8 @@ public sealed class BenchClientException : Exception
         OperationId = operationId;
         BusyScope = busyScope;
         BusyId = busyId;
+        DeadlineMs = deadlineMs;
+        DeadlineAtUtc = deadlineAtUtc;
     }
 
     public HttpStatusCode StatusCode { get; }
@@ -29,6 +33,8 @@ public sealed class BenchClientException : Exception
     public string? OperationId { get; }
     public string? BusyScope { get; }
     public string? BusyId { get; }
+    public int? DeadlineMs { get; }
+    public DateTimeOffset? DeadlineAtUtc { get; }
 }
 
 /// <summary>
@@ -52,6 +58,8 @@ public sealed class BenchClient : IDisposable
         _ownsClient = httpClient is null;
         _http = httpClient ?? new HttpClient();
         _http.BaseAddress = EnsureTrailingSlash(endpoint);
+        // Runtime deadlines, not HttpClient, own execution budgets. This keeps
+        // timeout classification/history/evidence deterministic across shells.
         _http.Timeout = Timeout.InfiniteTimeSpan;
     }
 
@@ -146,34 +154,48 @@ public sealed class BenchClient : IDisposable
     public Task<TargetPreflightResult> Preflight(
         string? target = null,
         CancellationToken ct = default) =>
-        Send<TargetPreflightResult>(HttpMethod.Post, WithTarget("api/v1/preflight", target), null, ct);
+        Send<TargetPreflightResult>(HttpMethod.Post, WithExecutionOptions("api/v1/preflight", target, null), null, ct);
 
     public Task<TargetReadinessResult> ValidateTargetReadiness(
         string? target = null,
         CancellationToken ct = default) =>
-        Send<TargetReadinessResult>(HttpMethod.Post, WithTarget("api/v1/validate", target), null, ct);
+        Send<TargetReadinessResult>(HttpMethod.Post, WithExecutionOptions("api/v1/validate", target, null), null, ct);
 
     public Task<PowerOnResult> PowerOn(
         double voltage,
         int settleMs,
         string? target = null,
         CancellationToken ct = default) =>
-        Send<PowerOnResult>(HttpMethod.Post, WithTarget("api/v1/power/on", target),
+        PowerOn(voltage, settleMs, target, null, ct);
+
+    public Task<PowerOnResult> PowerOn(
+        double voltage,
+        int settleMs,
+        string? target,
+        int? deadlineMs,
+        CancellationToken ct = default) =>
+        Send<PowerOnResult>(HttpMethod.Post, WithExecutionOptions("api/v1/power/on", target, deadlineMs),
             new PowerOnRequest(voltage, settleMs), ct);
 
     public Task<PowerOffResult> PowerOff(string? target = null, CancellationToken ct = default) =>
-        Send<PowerOffResult>(HttpMethod.Post, WithTarget("api/v1/power/off", target), null, ct);
+        PowerOff(target, null, ct);
+
+    public Task<PowerOffResult> PowerOff(
+        string? target,
+        int? deadlineMs,
+        CancellationToken ct = default) =>
+        Send<PowerOffResult>(HttpMethod.Post, WithExecutionOptions("api/v1/power/off", target, deadlineMs), null, ct);
 
     public Task<PowerOffResult> EmergencyPowerOff(
         string? target = null,
         CancellationToken ct = default) =>
-        Send<PowerOffResult>(HttpMethod.Post, WithTarget("api/v1/power/emergency-off", target), null, ct);
+        Send<PowerOffResult>(HttpMethod.Post, WithExecutionOptions("api/v1/power/emergency-off", target, null), null, ct);
 
     public Task<CurrentReading> ReadCurrent(
         int windowMs,
         string? target = null,
         CancellationToken ct = default) =>
-        Send<CurrentReading>(HttpMethod.Post, WithTarget("api/v1/power/current/read", target),
+        Send<CurrentReading>(HttpMethod.Post, WithExecutionOptions("api/v1/power/current/read", target, null),
             new CurrentReadRequest(windowMs), ct);
 
     public Task<CurrentCheck> CheckCurrent(
@@ -181,31 +203,46 @@ public sealed class BenchClient : IDisposable
         double? gtMa,
         string? target = null,
         CancellationToken ct = default) =>
-        Send<CurrentCheck>(HttpMethod.Post, WithTarget("api/v1/power/current/check", target),
+        Send<CurrentCheck>(HttpMethod.Post, WithExecutionOptions("api/v1/power/current/check", target, null),
             new CurrentCheckRequest(ltMa, gtMa), ct);
 
     public Task<FlashResult> Flash(
         string firmware,
         string? target = null,
         CancellationToken ct = default) =>
-        Flash(firmware, target, null, ct);
+        Flash(firmware, target, null, null, ct);
 
     public Task<FlashResult> Flash(
         string firmware,
         string? target,
         string? confirmTarget,
         CancellationToken ct = default) =>
-        Send<FlashResult>(HttpMethod.Post, WithTarget("api/v1/flash/write", target),
+        Flash(firmware, target, confirmTarget, null, ct);
+
+    public Task<FlashResult> Flash(
+        string firmware,
+        string? target,
+        string? confirmTarget,
+        int? deadlineMs,
+        CancellationToken ct = default) =>
+        Send<FlashResult>(HttpMethod.Post, WithExecutionOptions("api/v1/flash/write", target, deadlineMs),
             new FlashRequest(firmware, confirmTarget), ct);
 
     public Task<ResetResult> Reset(string? target = null, CancellationToken ct = default) =>
-        Reset(target, null, ct);
+        Reset(target, null, null, ct);
 
     public Task<ResetResult> Reset(
         string? target,
         string? confirmTarget,
         CancellationToken ct = default) =>
-        Send<ResetResult>(HttpMethod.Post, WithTarget("api/v1/flash/reset", target),
+        Reset(target, confirmTarget, null, ct);
+
+    public Task<ResetResult> Reset(
+        string? target,
+        string? confirmTarget,
+        int? deadlineMs,
+        CancellationToken ct = default) =>
+        Send<ResetResult>(HttpMethod.Post, WithExecutionOptions("api/v1/flash/reset", target, deadlineMs),
             new ResetRequest(confirmTarget), ct);
 
     public Task<SerialOpenResult> SerialOpen(
@@ -213,7 +250,15 @@ public sealed class BenchClient : IDisposable
         int? baud = null,
         string? target = null,
         CancellationToken ct = default) =>
-        Send<SerialOpenResult>(HttpMethod.Post, WithTarget("api/v1/serial/open", target),
+        SerialOpen(port, baud, target, null, ct);
+
+    public Task<SerialOpenResult> SerialOpen(
+        string? port,
+        int? baud,
+        string? target,
+        int? deadlineMs,
+        CancellationToken ct = default) =>
+        Send<SerialOpenResult>(HttpMethod.Post, WithExecutionOptions("api/v1/serial/open", target, deadlineMs),
             new SerialOpenRequest(port, baud), ct);
 
     public Task<SerialWaitResult> SerialWaitFor(
@@ -221,7 +266,15 @@ public sealed class BenchClient : IDisposable
         int timeoutMs,
         string? target = null,
         CancellationToken ct = default) =>
-        Send<SerialWaitResult>(HttpMethod.Post, WithTarget("api/v1/serial/wait", target),
+        SerialWaitFor(pattern, timeoutMs, target, null, ct);
+
+    public Task<SerialWaitResult> SerialWaitFor(
+        string pattern,
+        int timeoutMs,
+        string? target,
+        int? deadlineMs,
+        CancellationToken ct = default) =>
+        Send<SerialWaitResult>(HttpMethod.Post, WithExecutionOptions("api/v1/serial/wait", target, deadlineMs),
             new SerialWaitRequest(pattern, timeoutMs), ct);
 
     public Task<SerialWindowResult> SerialReadWindow(
@@ -229,14 +282,29 @@ public sealed class BenchClient : IDisposable
         string? filter,
         string? target = null,
         CancellationToken ct = default) =>
-        Send<SerialWindowResult>(HttpMethod.Post, WithTarget("api/v1/serial/window", target),
+        SerialReadWindow(lines, filter, target, null, ct);
+
+    public Task<SerialWindowResult> SerialReadWindow(
+        int lines,
+        string? filter,
+        string? target,
+        int? deadlineMs,
+        CancellationToken ct = default) =>
+        Send<SerialWindowResult>(HttpMethod.Post, WithExecutionOptions("api/v1/serial/window", target, deadlineMs),
             new SerialWindowRequest(lines, filter), ct);
 
     public Task<SerialSendResult> SerialSend(
         string data,
         string? target = null,
         CancellationToken ct = default) =>
-        Send<SerialSendResult>(HttpMethod.Post, WithTarget("api/v1/serial/send", target),
+        SerialSend(data, target, null, ct);
+
+    public Task<SerialSendResult> SerialSend(
+        string data,
+        string? target,
+        int? deadlineMs,
+        CancellationToken ct = default) =>
+        Send<SerialSendResult>(HttpMethod.Post, WithExecutionOptions("api/v1/serial/send", target, deadlineMs),
             new SerialSendRequest(data), ct);
 
     private async Task<T> Send<T>(
@@ -270,7 +338,9 @@ public sealed class BenchClient : IDisposable
                 apiError?.Error ?? $"BenchPilot runtime returned HTTP {(int)response.StatusCode}.",
                 apiError?.OperationId,
                 apiError?.BusyScope,
-                apiError?.BusyId);
+                apiError?.BusyId,
+                apiError?.DeadlineMs,
+                apiError?.DeadlineAtUtc);
         }
 
         var value = await response.Content.ReadFromJsonAsync<T>(JsonOptions, ct);
@@ -280,10 +350,21 @@ public sealed class BenchClient : IDisposable
             "BenchPilot runtime returned an empty or invalid JSON response.");
     }
 
-    private static string WithTarget(string path, string? target) =>
-        string.IsNullOrWhiteSpace(target)
+    private static string WithExecutionOptions(
+        string path,
+        string? target,
+        int? deadlineMs)
+    {
+        var query = new List<string>(2);
+        if (!string.IsNullOrWhiteSpace(target))
+            query.Add($"target={Uri.EscapeDataString(target)}");
+        if (deadlineMs is { } value)
+            query.Add($"deadlineMs={value}");
+
+        return query.Count == 0
             ? path
-            : $"{path}?target={Uri.EscapeDataString(target)}";
+            : $"{path}?{string.Join("&", query)}";
+    }
 
     private static Uri EnsureTrailingSlash(Uri endpoint) =>
         endpoint.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)
