@@ -83,6 +83,18 @@ public sealed class BenchClient : IDisposable
             null,
             ct);
 
+    public Task<OperationEvidenceResult> OperationEvidence(
+        string operationId,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationId);
+        return Send<OperationEvidenceResult>(
+            HttpMethod.Get,
+            $"api/v1/operations/{Uri.EscapeDataString(operationId)}/evidence",
+            null,
+            ct);
+    }
+
     public Task<OperationCancelResult> CancelOperation(
         string operationId,
         CancellationToken ct = default)
