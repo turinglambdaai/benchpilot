@@ -291,6 +291,12 @@ app.MapPost($"{BenchpilotApi.Prefix}/preflight", async (
     CancellationToken ct) =>
     await Execute(() => runtime.Preflight(target, ct)));
 
+app.MapPost($"{BenchpilotApi.Prefix}/validate", async (
+    string? target,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+    await Execute(() => runtime.ValidateTargetReadiness(target, ct)));
+
 app.MapPost($"{BenchpilotApi.Prefix}/power/on", async (
     string? target,
     PowerOnRequest request,
