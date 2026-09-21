@@ -88,7 +88,7 @@ public sealed class ObservationEvidenceTests
 
         var window = evidence.Items[1];
         Assert.Equal("serial.failure-window", window.Kind);
-        Assert.Contains("FAULT: missing calibration", window.Text);
+        Assert.Contains("FAULT: missing calibration", window.Text!);
         Assert.Equal("4", window.Metadata!["lineCount"]);
     }
 
@@ -195,14 +195,15 @@ public sealed class ObservationEvidenceTests
 
     private sealed class BlockingSerialChannel : ISerialChannel
     {
-        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<SerialOpenResult> Open(string? port = null, int? baud = null, CancellationToken ct = default) =>
             Task.FromResult(new SerialOpenResult(true, port ?? "TEST0", baud ?? 115200));
 
         public async Task<SerialWaitResult> WaitFor(string pattern, int timeoutMs, CancellationToken ct = default)
         {
-            Started.TrySetResult();
+            Started.TrySetResult(true);
             await Task.Delay(Timeout.InfiniteTimeSpan, ct);
             throw new InvalidOperationException("Unreachable");
         }
