@@ -15,6 +15,72 @@ public class RuntimeTests
         return (new BenchRuntime(profile, registry), bench);
     }
 
+    private static (
+        BenchRuntime Runtime,
+        SimulatedBench SharedBench,
+        SimulatedBench IndependentBench) NewMultiTargetRuntime()
+    {
+        var profile = new BenchProfile
+        {
+            SchemaVersion = 1,
+            Name = "Multi-target locking bench",
+            DefaultTarget = "ecu-a",
+            Resources = new Dictionary<string, BenchResourceConfig>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["sim.shared"] = new()
+                {
+                    Driver = "simulator",
+                    Capabilities = ["power", "serial", "flash"],
+                },
+                ["sim.independent"] = new()
+                {
+                    Driver = "simulator",
+                    Capabilities = ["power", "serial", "flash"],
+                },
+            },
+            Targets = new Dictionary<string, BenchTargetConfig>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ecu-a"] = new()
+                {
+                    Name = "ECU A",
+                    Bindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["power"] = "sim.shared",
+                        ["serial"] = "sim.shared",
+                        ["flash"] = "sim.shared",
+                    },
+                },
+                ["ecu-b"] = new()
+                {
+                    Name = "ECU B",
+                    Bindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["power"] = "sim.shared",
+                        ["serial"] = "sim.shared",
+                        ["flash"] = "sim.shared",
+                    },
+                },
+                ["ecu-c"] = new()
+                {
+                    Name = "ECU C",
+                    Bindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["power"] = "sim.independent",
+                        ["serial"] = "sim.independent",
+                        ["flash"] = "sim.independent",
+                    },
+                },
+            },
+        };
+
+        var sharedBench = new SimulatedBench();
+        var independentBench = new SimulatedBench();
+        var registry = new BenchResourceRegistry(profile);
+        registry.Register("sim.shared", sharedBench);
+        registry.Register("sim.independent", independentBench);
+        return (new BenchRuntime(profile, registry), sharedBench, independentBench);
+    }
+
     [Fact]
     public void Target_resolves_multiple_capabilities_to_same_live_resource()
     {
@@ -108,8 +174,49 @@ public class RuntimeTests
 
         Assert.Equal("demo", busy.TargetId);
         Assert.Equal("flash.reset", busy.Operation);
+        Assert.Equal("target", busy.BusyScope);
+        Assert.Equal("demo", busy.BusyId);
+        Assert.Null(busy.ResourceId);
         Assert.Contains("busy", busy.Message, StringComparison.OrdinalIgnoreCase);
         Assert.True((await flash).Ok);
+    }
+
+    [Fact]
+    public async Task Shared_physical_resource_blocks_mutations_across_different_targets()
+    {
+        var (runtime, sharedBench, _) = NewMultiTargetRuntime();
+        var ecuA = runtime.Target("ecu-a");
+        var ecuB = runtime.Target("ecu-b");
+        Assert.True((await ecuA.PowerOn(12, 0)).Ok);
+        Assert.True(sharedBench.IsOn);
+
+        var flash = ecuA.Flash("build/ecu-a.elf");
+        var busy = await Assert.ThrowsAsync<BenchBusyException>(() => ecuB.Reset());
+
+        Assert.Equal("ecu-b", busy.TargetId);
+        Assert.Equal("flash.reset", busy.Operation);
+        Assert.Equal("resource", busy.BusyScope);
+        Assert.Equal("sim.shared", busy.BusyId);
+        Assert.Equal("sim.shared", busy.ResourceId);
+        Assert.Contains("sim.shared", busy.Message);
+        Assert.True((await flash).Ok);
+    }
+
+    [Fact]
+    public async Task Independent_physical_resources_can_mutate_in_parallel()
+    {
+        var (runtime, _, independentBench) = NewMultiTargetRuntime();
+        var ecuA = runtime.Target("ecu-a");
+        var ecuC = runtime.Target("ecu-c");
+        Assert.True((await ecuA.PowerOn(12, 0)).Ok);
+        Assert.True((await ecuC.PowerOn(12, 0)).Ok);
+        Assert.True(independentBench.IsOn);
+
+        var flashA = ecuA.Flash("build/ecu-a.elf");
+        var resetC = await ecuC.Reset();
+
+        Assert.True(resetC.Ok);
+        Assert.True((await flashA).Ok);
     }
 
     [Fact]
