@@ -21,7 +21,7 @@ public class TargetContextEvidenceTests
         Assert.False(flash.Ok);
 
         var operation = Assert.Single(runtime.RecentOperations(10).Where(x => x.Kind == "flash.write"));
-        var evidence = Assert.NotNull(runtime.GetOperationEvidence(operation.Id));
+        var evidence = Assert.IsType<BenchOperationEvidence>(runtime.GetOperationEvidence(operation.Id));
         Assert.Contains(evidence.Items, x => x.Kind == "flash.result");
         Assert.Contains(evidence.Items, x => x.Kind == "context.current-check");
         Assert.Contains(evidence.Items, x => x.Kind == "context.current-reading");
@@ -49,7 +49,8 @@ public class TargetContextEvidenceTests
         Assert.False(wait.Matched);
         Assert.False(string.IsNullOrWhiteSpace(wait.ObservationId));
 
-        var evidence = Assert.NotNull(runtime.GetObservationEvidence(wait.ObservationId!));
+        var evidence = Assert.IsType<BenchObservationEvidence>(
+            runtime.GetObservationEvidence(wait.ObservationId!));
         Assert.Contains(evidence.Items, x => x.Kind == "serial.wait");
         Assert.Contains(evidence.Items, x => x.Kind == "serial.failure-window");
         Assert.Contains(evidence.Items, x => x.Kind == "context.current-check");
@@ -69,7 +70,7 @@ public class TargetContextEvidenceTests
         Assert.True(flash.Ok);
 
         var operation = Assert.Single(runtime.RecentOperations(10).Where(x => x.Kind == "flash.write"));
-        var evidence = Assert.NotNull(runtime.GetOperationEvidence(operation.Id));
+        var evidence = Assert.IsType<BenchOperationEvidence>(runtime.GetOperationEvidence(operation.Id));
         Assert.Single(evidence.Items);
         Assert.Equal("flash.result", evidence.Items[0].Kind);
     }
@@ -90,7 +91,7 @@ public class TargetContextEvidenceTests
 
         await target.Flash("app.hex");
         var operation = Assert.Single(runtime.RecentOperations(10).Where(x => x.Kind == "flash.write"));
-        var evidence = Assert.NotNull(runtime.GetOperationEvidence(operation.Id));
+        var evidence = Assert.IsType<BenchOperationEvidence>(runtime.GetOperationEvidence(operation.Id));
         var context = evidence.Items.Where(x => x.Kind.StartsWith("context.", StringComparison.Ordinal)).ToArray();
 
         Assert.Equal(3, context.Length);
@@ -112,7 +113,7 @@ public class TargetContextEvidenceTests
         await target.Flash("app.hex");
 
         var operation = Assert.Single(runtime.RecentOperations(10).Where(x => x.Kind == "flash.write"));
-        var evidence = Assert.NotNull(runtime.GetOperationEvidence(operation.Id));
+        var evidence = Assert.IsType<BenchOperationEvidence>(runtime.GetOperationEvidence(operation.Id));
         var context = evidence.Items.Where(x => x.Kind.StartsWith("context.", StringComparison.Ordinal)).ToArray();
 
         Assert.NotEmpty(context);
