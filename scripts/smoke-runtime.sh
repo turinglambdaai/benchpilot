@@ -43,6 +43,8 @@ cli() {
 cli status --json
 cli operations --json
 cli history --limit 10 --json
+cli observe list --json
+cli observe history --limit 10 --json
 cli preflight --json
 cli power on --voltage 12 --settle-ms 200 --json
 # No --port/--baud here: the shell must let the resource profile own device details.
@@ -50,13 +52,26 @@ cli serial open --json
 cli flash write build/app.elf --json
 # Completed mutations must disappear from Runtime-owned operation state.
 cli operations --json
-# Query compact evidence through the same CLI -> Client -> HTTP Runtime path.
+# Query compact mutation evidence through the same CLI -> Client -> HTTP Runtime path.
 latest_operation_id="$(cli history --limit 1 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["operations"][0]["id"])')"
 cli evidence "$latest_operation_id" --json
 cli serial wait Ready --timeout-ms 5000 --json
+
+# An unmatched wait is an assertion-style failure (exit 1), not a device error.
+# It must still create bounded observation history/evidence containing a small
+# recent serial context window.
+if cli serial wait __BENCHPILOT_NEVER_MATCH__ --timeout-ms 50 --json; then
+  echo "expected unmatched serial wait to return non-zero" >&2
+  exit 1
+fi
+cli observe list --json
+latest_observation_id="$(cli observe history --limit 1 --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["observations"][0]["id"])')"
+cli observe evidence "$latest_observation_id" --json
+
 cli power check --lt-ma 100 --json
 cli power off --json
-# Completed mutations remain available as a bounded Runtime audit trail.
+# Completed mutations and observations remain available as bounded Runtime audit trails.
 cli history --limit 10 --json
+cli observe history --limit 10 --json
 
 echo "BenchPilot resident runtime smoke test passed."
