@@ -274,18 +274,69 @@
     </footer>
 
     <script>
-        // Bilingual content: data-en / data-zh attributes, English default.
-        function setLanguage(lang) {
+        // Unified language policy: explicit choice wins; otherwise follow system/browser locale.
+        var LANGUAGE_OVERRIDE_KEY = 'benchpilot-lang-override-v2';
+        var LEGACY_LANGUAGE_KEY = 'site-lang';
+        var pageMetadata = {
+            en: {
+                title: 'BenchPilot — The hardware runtime for embedded coding agents',
+                description: 'BenchPilot gives humans, CI jobs and AI coding agents one stateful interface to real embedded targets: power them, flash them, observe them, diagnose them and validate behavior.'
+            },
+            zh: {
+                title: 'BenchPilot — 面向嵌入式编码代理的硬件运行时',
+                description: 'BenchPilot 为人类、CI 任务和 AI 编码代理提供同一个有状态接口，直连真实嵌入式目标：上电、烧录、观察、诊断并验证行为。'
+            }
+        };
+
+        function readLanguageOverride() {
+            try {
+                var saved = localStorage.getItem(LANGUAGE_OVERRIDE_KEY);
+                return saved === 'zh' || saved === 'en' ? saved : null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function detectBrowserLanguage() {
+            var locale = (navigator.languages && navigator.languages[0]) || navigator.language || '';
+            if (!locale) return 'zh';
+            return String(locale).toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
+        }
+
+        function applyLanguage(lang, persist) {
+            if (persist) {
+                try { localStorage.setItem(LANGUAGE_OVERRIDE_KEY, lang); } catch (e) { /* private mode */ }
+            }
+
             document.querySelectorAll('[data-en]').forEach(function (el) {
-                el.textContent = el.getAttribute('data-' + lang);
+                var text = el.getAttribute('data-' + lang);
+                if (text !== null) el.textContent = text;
             });
             document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
-            try { localStorage.setItem('site-lang', lang); } catch (e) { /* private mode */ }
+            document.documentElement.setAttribute('data-language', lang);
+
+            var label = document.getElementById('current-lang-label');
+            if (label) label.textContent = lang === 'zh' ? '简体中文' : 'English';
+
+            var metadata = pageMetadata[lang];
+            if (metadata) {
+                document.title = metadata.title;
+                var description = document.querySelector('meta[name="description"]');
+                if (description) description.setAttribute('content', metadata.description);
+            }
         }
-        try {
-            var saved = localStorage.getItem('site-lang');
-            if (saved && saved !== 'en') setLanguage(saved);
-        } catch (e) { /* private mode */ }
+
+        function setLanguage(lang) {
+            if (lang !== 'zh' && lang !== 'en') return;
+            applyLanguage(lang, true);
+        }
+
+        try { localStorage.removeItem(LEGACY_LANGUAGE_KEY); } catch (e) { /* private mode */ }
+        applyLanguage(readLanguageOverride() || detectBrowserLanguage(), false);
+
+        window.addEventListener('languagechange', function () {
+            if (!readLanguageOverride()) applyLanguage(detectBrowserLanguage(), false);
+        });
 
         // Scroll-in animation.
         var observer = new IntersectionObserver(function (entries) {
