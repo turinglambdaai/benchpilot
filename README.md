@@ -12,7 +12,7 @@ Build -> Flash -> Run -> Observe -> Diagnose -> Fix
 
 BenchPilot is **not** a CANoe clone. It does not aim to reproduce full vehicle-network simulation, CAPL, ADAS simulation or hundreds of analysis windows. CAN/CAN FD, DBC, ISO-TP, UDS and DoIP are added when they help complete the ECU development loop.
 
-> Current status: **real-bench software foundation ready for physical validation**. The resident Runtime, versioned local API, CLI and MCP adapter share one hardware state and safety boundary. Real `system-serial`, J-Link Commander and SCPI power drivers, non-destructive preflight/readiness checks, bounded operation/observation evidence, Runtime-owned execution deadlines and graceful Runtime shutdown are implemented. Windows/Linux CI is green. The next gate is validation against an actual ECU + J-Link + serial + bench supply, not adding more protocols.
+> Current status: **v0.4.0 — installable product, hardware-ready foundation**. The resident Runtime, versioned local API, CLI and MCP adapter share one hardware state and safety boundary. Real `system-serial`, J-Link Commander and SCPI power drivers, non-destructive preflight/readiness checks, bounded operation/observation evidence, Runtime-owned execution deadlines and graceful Runtime shutdown are implemented. A per-user token guards the loopback API, the CLI starts and reuses the daemon automatically, and a black-box e2e suite runs the real processes on Windows/Linux CI. Release packages are attached to GitHub releases. The next gate is validation against an actual ECU + J-Link + serial + bench supply, not adding more protocols.
 
 ## Why BenchPilot?
 
@@ -116,42 +116,61 @@ dotnet test
 
 ## Quick start
 
-### 1. Start the resident Runtime
+### 0. Install
+
+Download the package for your platform from the [latest release](https://github.com/turinglambdaai/benchpilot/releases/latest)
+(`benchpilot-<version>-<platform>.zip/.tar.gz`), unpack it and put the three
+executables on your `PATH`:
+
+| executable | role |
+| --- | --- |
+| `benchpilotd` | resident runtime owning hardware state |
+| `benchpilot` | CLI for humans, CI and agents |
+| `benchpilot-mcp` | stdio MCP adapter for agent clients |
+
+From source instead:
 
 ```bash
-dotnet run --project src/Benchpilot.RuntimeHost
+git clone https://github.com/turinglambdaai/benchpilot.git
+cd benchpilot
+dotnet build -c Release
 ```
 
-Defaults:
+### 1. Just run a command
 
-```text
-BENCHPILOT_ENDPOINT=http://127.0.0.1:5640/
-profile=built-in simulator
-```
-
-Set `BENCHPILOT_PROFILE` to a profile path to override the built-in simulator profile.
-
-### 2. Inspect the bench from CLI
+There is no separate "start the runtime" step for casual and agent use: the
+first `benchpilot` command starts `benchpilotd` automatically (detached, logs
+in `~/.benchpilot/logs/`) and every later command reuses that resident
+process and its state.
 
 ```bash
-dotnet run --project src/Benchpilot.Cli -- status
+benchpilot status --json
 ```
 
-Machine-oriented output:
+Set `BENCHPILOT_AUTOSTART=0` if you prefer to run `benchpilotd` yourself, for
+example with a specific profile:
 
 ```bash
-dotnet run --project src/Benchpilot.Cli -- status --json
+BENCHPILOT_PROFILE=profiles/real-ecu.example.json benchpilotd
 ```
+
+`benchpilot doctor --json` checks the installation (runtime reachability,
+versions, token, daemon discovery) without changing anything.
+
+### 2. Drive the bench
 
 The first useful simulated ECU loop is:
 
 ```bash
-dotnet run --project src/Benchpilot.Cli -- power on --voltage 12 --json
-dotnet run --project src/Benchpilot.Cli -- flash write build/app.elf --json
-dotnet run --project src/Benchpilot.Cli -- serial wait Ready --timeout-ms 5000 --json
-dotnet run --project src/Benchpilot.Cli -- power check --lt-ma 100 --json
-dotnet run --project src/Benchpilot.Cli -- power off --json
+benchpilot power on --voltage 12 --json
+benchpilot flash write build/app.elf --json
+benchpilot serial wait Ready --timeout-ms 5000 --json
+benchpilot power check --lt-ma 100 --json
+benchpilot power off --json
 ```
+
+When installed from source, prefix the commands with
+`dotnet run --project src/Benchpilot.Cli --` instead.
 
 Long mutations and serial observations can also carry a Runtime execution budget:
 
@@ -173,15 +192,13 @@ Start from the checked-in example profile and replace every `CHANGE_ME` value wi
 profiles/real-ecu.example.json
 ```
 
-Then start Runtime with that profile and run the readiness report **before** power/reset/flash:
+Then run the readiness report **before** power/reset/flash:
 
 ```bash
-BENCHPILOT_PROFILE=profiles/real-ecu.example.json \
-  dotnet run --project src/Benchpilot.RuntimeHost
+BENCHPILOT_PROFILE=profiles/real-ecu.example.json benchpilotd
 
-# In another terminal:
-dotnet run --project src/Benchpilot.Cli -- \
-  bench validate --target ecu --json
+# In another terminal (or just benchpilot with autostart pointing at the same endpoint):
+benchpilot bench validate --target ecu --json
 ```
 
 `bench validate` is deliberately non-destructive. It checks:
@@ -219,13 +236,23 @@ preflight
 
 ### 4. Run the MCP adapter
 
-With `benchpilotd` still running:
-
 ```bash
-dotnet run --project src/Benchpilot.Mcp
+benchpilot-mcp
 ```
 
-The MCP process is only a stdio protocol adapter. It calls the same resident Runtime as CLI, so an Agent and a terminal observe the same ECU/bench state. The MCP `BenchValidate` tool exposes the same non-destructive readiness report as CLI. Long power/flash/serial tools also expose an optional `deadlineMs`, enforced and audited by Runtime rather than by the MCP process.
+The MCP process is only a stdio protocol adapter. It also starts the resident
+Runtime on demand, so an Agent and a terminal observe the same ECU/bench
+state. The MCP `BenchValidate` tool exposes the same non-destructive readiness
+report as CLI. Long power/flash/serial tools also expose an optional
+`deadlineMs`, enforced and audited by Runtime rather than by the MCP process.
+
+### 5. Wire the agent skill
+
+`integrations/agent/SKILL.md` is a ready-made skill package for coding agents
+(operate the bench safely, read evidence before retrying, respect the safety
+gates). Point your agent at that file, or copy it into your skills directory.
+`benchpilot doctor` and `benchpilot status --json` are deliberately agent
+friendly entry points.
 
 Example Agent task:
 
@@ -244,7 +271,7 @@ CLI exit codes are intentionally stable and machine-friendly:
 1 operation, assertion or readiness failure; cancellation
 2 validation error
 3 target/resource/operation/observation/evidence not found
-4 runtime/device unavailable or device/preflight error
+4 runtime unreachable, unauthorized, or device/preflight error
 5 target/resource busy because another mutating operation is active
 6 Runtime execution deadline exceeded
 ```
@@ -252,6 +279,17 @@ CLI exit codes are intentionally stable and machine-friendly:
 A `bench validate` exit code of `1` does **not** mean the readiness API failed. It means the report executed successfully but one or more blocking readiness checks failed; inspect the JSON checks and remediation fields.
 
 A deadline failure is returned as `code=deadline_exceeded` with `deadlineMs` and `deadlineAtUtc`; active and history records also expose deadline metadata. Emergency power-off intentionally has no Runtime deadline once accepted, because a safety shutdown must not be abandoned just because a shell budget expired.
+
+## Local security model
+
+`benchpilotd` binds to loopback only and refuses non-loopback endpoints. Loopback alone is not an auth boundary on a shared machine, so the API additionally requires a per-user token:
+
+- on first start the daemon generates a random token at `~/.benchpilot/token` (user-only permissions on Unix);
+- CLI, MCP and `Benchpilot.Client` attach it automatically; `BENCHPILOT_TOKEN` overrides the file;
+- `/healthz` is intentionally open so autostart, monitoring and `doctor` can probe liveness without credentials;
+- a second daemon for another user account on the same machine cannot read this user's token file and cannot drive this user's bench.
+
+Remote/team access (authenticated transport, leases, scheduling) is deliberately out of scope until the local single-bench experience is validated on hardware.
 
 ## Resource / target profile
 

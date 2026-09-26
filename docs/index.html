@@ -74,8 +74,8 @@
             </p>
 
             <div class="hero-buttons animate-on-scroll">
-                <a href="https://github.com/turinglambdaai/benchpilot" class="btn btn-primary" data-en="View on GitHub" data-zh="在 GitHub 查看">View on GitHub</a>
-                <a href="#runtime" class="btn btn-secondary" data-en="How it works" data-zh="工作原理">How it works</a>
+                <a href="https://github.com/turinglambdaai/benchpilot/releases/latest" class="btn btn-primary" data-en="Download" data-zh="下载安装">Download</a>
+                <a href="https://github.com/turinglambdaai/benchpilot" class="btn btn-secondary" data-en="View on GitHub" data-zh="在 GitHub 查看">View on GitHub</a>
             </div>
 
             <div class="hero-visual animate-on-scroll">
@@ -86,18 +86,18 @@
                             <div class="traffic-light minimize"></div>
                             <div class="traffic-light maximize"></div>
                         </div>
-                        <div class="window-title">benchpilot — session: radar</div>
+                        <div class="window-title">benchpilot — the first command starts the runtime</div>
                     </div>
-                    <div class="code-body"><span class="prompt">$</span> <span class="cmd">benchpilot power on radar</span>
-  <span class="dim">psu.main</span>    <span class="dim">→</span> 12.0 V · 0.08 A          <span class="ok">✓</span>
-<span class="prompt">$</span> <span class="cmd">benchpilot flash radar firmware-latest.bin</span>
+                    <div class="code-body"><span class="prompt">$</span> <span class="cmd">benchpilot power on --target radar --voltage 12 --json</span>
+  <span class="dim">psu.main</span>    <span class="dim">→</span> 12.0 V · settled           <span class="ok">✓</span>
+<span class="prompt">$</span> <span class="cmd">benchpilot flash write fw/app.elf --target radar --confirm-target radar --json</span>
   <span class="dim">probe.radar</span> <span class="dim">→</span> J-Link                   <span class="ok">✓ 1.8 s</span>
-<span class="prompt">$</span> <span class="cmd">benchpilot wait-signal radar RadarStatus RUNNING</span>
+<span class="prompt">$</span> <span class="cmd">benchpilot serial wait RadarStatus:RUNNING --target radar --timeout-ms 5000 --json</span>
   <span class="dim">uart.radar</span>  <span class="dim">→</span> <span class="str">"RadarStatus: RUNNING"</span>  <span class="ok">✓ 2.4 s</span>
-<span class="prompt">$</span> <span class="cmd">benchpilot assert-current radar --lt 100mA</span>
+<span class="prompt">$</span> <span class="cmd">benchpilot power check --target radar --lt-ma 100 --json</span>
   <span class="ok">✓ 92 mA</span>
-<span class="prompt">$</span> <span class="cmd">benchpilot capture-failure-window radar</span>
-  <span class="comment"># ring buffer saved: last 5 s of serial + CAN</span></div>
+<span class="prompt">$</span> <span class="cmd">benchpilot power off --target radar --json</span>
+  <span class="ok">✓</span> <span class="comment"># bounded evidence + history kept for the next command</span></div>
                 </div>
             </div>
         </div>
@@ -246,9 +246,9 @@
             <h2 class="section-title animate-on-scroll" data-en="Honest about where it is." data-zh="如实说明所处阶段。">Honest about where it is.</h2>
 
             <div class="callout animate-on-scroll">
-                <strong data-en="Runtime foundation validated." data-zh="运行时基座已验证。">Runtime foundation validated.</strong>
-                <span data-en=" A resident Runtime, versioned local API, CLI and MCP adapter share one simulated power + serial + flash bench state. Windows/Linux builds and tests pass; CI executes the full resident-runtime CLI smoke loop. The next milestone is real hardware: serial + J-Link + SCPI."
-                      data-zh=" 常驻 Runtime、带版本号的本地 API、CLI 与 MCP 适配器共享同一套模拟的电源+串口+烧录 bench 状态。Windows/Linux 构建与测试通过，CI 跑完整的常驻运行时 CLI 冒烟回路。下一个里程碑是真实硬件：串口 + J-Link + SCPI。"> A resident Runtime, versioned local API, CLI and MCP adapter share one simulated bench state; the next milestone is real serial + J-Link + SCPI hardware.</span>
+                <strong data-en="v0.4.0 — installable product." data-zh="v0.4.0 — 可安装的产品。">v0.4.0 — installable product.</strong>
+                <span data-en=" Self-contained single-file packages per platform, one-command daemon autostart, per-user token authentication on the loopback API, installation doctor, an agent skill package and a black-box e2e suite running real processes on Windows/Linux CI. The next milestone is physical validation: serial + J-Link + SCPI against a real ECU."
+                      data-zh=" 按平台分发的自包含单文件包、单命令自动拉起守护进程、环回 API 的每用户令牌认证、安装诊断 doctor、agent 技能包，以及在 Windows/Linux CI 上跑真实进程的黑盒 e2e 测试。下一个里程碑是真机验证：串口 + J-Link + SCPI 对接真实 ECU。"> Self-contained single-file packages, one-command daemon autostart, per-user token auth, doctor, an agent skill package and a black-box e2e suite. The next milestone is physical validation: serial + J-Link + SCPI against a real ECU.</span>
             </div>
         </div>
     </section>
