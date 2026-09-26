@@ -42,6 +42,8 @@ jobs:
               --self-contained true \
               -p:PublishSingleFile=true \
               -p:IncludeNativeLibrariesForSelfExtract=true \
+              -p:DebugType=None \
+              -p:DebugSymbols=false \
               -p:Version="$VER" \
               -o "$STAGE"
           done
@@ -54,9 +56,12 @@ jobs:
           RID="${{ matrix.rid }}"
           NAME="benchpilot-$VER-$RID"
           mkdir "$NAME"
-          # Keep only the three shipped executables; publish output may also
-          # contain intermediate files when projects share one output dir.
-          mv stage/$RID/benchpilot* "$NAME"/
+          # Ship exactly the three executables, nothing else: publish output
+          # also contains intermediate files (static web assets manifests)
+          # that are meaningless outside a build tree.
+          for exe in benchpilotd benchpilot benchpilot-mcp; do
+            mv "stage/$RID/$exe"* "$NAME"/
+          done
           mkdir -p artifacts
           if [[ "$RID" == win-x64 ]]; then
             zip -q -r "artifacts/$NAME.zip" "$NAME"
