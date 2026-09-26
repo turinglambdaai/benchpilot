@@ -55,15 +55,15 @@ jobs:
           VER="${{ steps.version.outputs.version }}"
           RID="${{ matrix.rid }}"
           NAME="benchpilot-$VER-$RID"
-          echo "--- publish output inventory ---"
-          ls -la "stage/$RID" | head -40
           mkdir "$NAME"
-          # Ship exactly the three executables, nothing else: publish output
-          # also contains intermediate files (static web assets manifests)
-          # that are meaningless outside a build tree.
+          # Ship exactly the three executables. Plain names on POSIX, .exe on
+          # Windows; publish intermediates (pdb, static web assets manifests)
+          # stay behind.
           for exe in benchpilotd benchpilot benchpilot-mcp; do
-            if compgen -G "stage/$RID/$exe*" > /dev/null; then
-              mv stage/$RID/$exe* "$NAME"/
+            if [[ -f "stage/$RID/$exe" ]]; then
+              mv "stage/$RID/$exe" "$NAME/"
+            elif [[ -f "stage/$RID/$exe.exe" ]]; then
+              mv "stage/$RID/$exe.exe" "$NAME/"
             else
               echo "::error::publish output missing: $exe"
               ls -la "stage/$RID"
