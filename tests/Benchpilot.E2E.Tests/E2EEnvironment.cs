@@ -55,7 +55,7 @@ public sealed class E2EEnvironment : IDisposable
     /// healthy. The daemon shares the user token file with any other daemon,
     /// which is fine: tests talk to one endpoint at a time.
     /// </summary>
-    public void StartDaemon()
+    public async Task StartDaemonAsync()
     {
         if (_daemon is not null && !_daemon.HasExited)
             return;
@@ -77,29 +77,29 @@ public sealed class E2EEnvironment : IDisposable
         _ = _daemon.StandardOutput.ReadToEndAsync();
         _ = _daemon.StandardError.ReadToEndAsync();
 
-        WaitHealthy();
+        await WaitHealthyAsync().ConfigureAwait(false);
     }
 
-    public void WaitHealthy(int timeoutSeconds = 60)
+    public async Task WaitHealthyAsync(int timeoutSeconds = 60)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(timeoutSeconds);
         while (DateTimeOffset.UtcNow < deadline)
         {
-            if (IsHealthy())
+            if (await IsHealthyAsync().ConfigureAwait(false))
                 return;
-            Thread.Sleep(200);
+            await Task.Delay(200).ConfigureAwait(false);
         }
 
         throw new TimeoutException(
             $"benchpilotd did not become healthy within {timeoutSeconds}s. Log: {LogTail()}");
     }
 
-    public bool IsHealthy()
+    public async Task<bool> IsHealthyAsync()
     {
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-            using var response = http.GetAsync(new Uri(Endpoint, "healthz")).GetAwaiter().GetResult();
+            using var response = await http.GetAsync(new Uri(Endpoint, "healthz")).ConfigureAwait(false);
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or TaskCanceledException)
@@ -112,7 +112,7 @@ public sealed class E2EEnvironment : IDisposable
     /// Runs the staged CLI as a real process and returns its observable
     /// contract: exit code plus stdout (JSON text or plain output).
     /// </summary>
-    public (int ExitCode, string Stdout) RunCli(params string[] args)
+    public async Task<(int ExitCode, string Stdout)> RunCliAsync(params string[] args)
     {
         var psi = new ProcessStartInfo
         {
@@ -129,20 +129,27 @@ public sealed class E2EEnvironment : IDisposable
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start benchpilot CLI.");
         var wait = TimeSpan.FromMinutes(3);
-        var stdout = process.StandardOutput.ReadToEndAsync().WaitAsync(wait).GetAwaiter().GetResult();
-        _ = process.StandardError.ReadToEndAsync().WaitAsync(wait).GetAwaiter().GetResult();
-        if (!process.WaitForExit((int)wait.TotalMilliseconds))
+        var stdoutTask = process.StandardOutput.ReadToEndAsync().WaitAsync(wait);
+        _ = process.StandardError.ReadToEndAsync().WaitAsync(wait);
+
+        // Wait for exit first; only then read stdout, which terminates once
+        // the process is gone. A non-exiting CLI is killed and surfaced as a
+        // timeout instead of hanging the suite.
+        var exitTask = Task.Run(() => process.WaitForExit((int)wait.TotalMilliseconds));
+        var completed = await Task.WhenAny(exitTask, Task.Delay(wait)).ConfigureAwait(false);
+        if (completed != exitTask || !process.HasExited)
         {
             process.Kill(entireProcessTree: true);
             throw new TimeoutException($"CLI did not exit: benchpilot {string.Join(' ', args)}");
         }
 
+        var stdout = await stdoutTask.ConfigureAwait(false);
         return (process.ExitCode, stdout);
     }
 
-    public JsonDocument RunCliJson(params string[] args)
+    public async Task<JsonDocument> RunCliJsonAsync(params string[] args)
     {
-        var (exitCode, stdout) = RunCli(args);
+        var (exitCode, stdout) = await RunCliAsync(args).ConfigureAwait(false);
         Assert.Equal(0, exitCode);
         return JsonDocument.Parse(stdout);
     }

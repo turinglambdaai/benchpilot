@@ -15,27 +15,31 @@ public sealed class AutostartTests : IDisposable
     private E2EEnvironment Env => _env;
 
     [Fact]
-    public void First_Command_Starts_Daemon_And_Succeeds()
+    public async Task First_Command_Starts_Daemon_And_Succeeds()
     {
-        var (exitCode, stdout) = Env.RunCli("status", "--json");
+        var (exitCode, stdout) = await Env.RunCliAsync("status", "--json");
 
         Assert.Equal(0, exitCode);
         Assert.Contains("\"ok\":true", stdout);
 
         // The daemon must outlive the short-lived CLI command: that resident
         // state is the product premise, not an implementation detail.
-        Assert.True(Env.IsHealthy(), "autostarted daemon must stay healthy after the CLI exits");
+        Assert.True(
+            await Env.IsHealthyAsync(),
+            "autostarted daemon must stay healthy after the CLI exits");
     }
 
     [Fact]
-    public void Doctor_Does_Not_Start_Daemon()
+    public async Task Doctor_Does_Not_Start_Daemon()
     {
-        var (exitCode, stdout) = Env.RunCli("doctor", "--json");
+        var (exitCode, stdout) = await Env.RunCliAsync("doctor", "--json");
 
         Assert.Equal(4, exitCode);
         Assert.Contains("\"runtimeReachable\":false", stdout);
         Assert.Contains("remediation", stdout);
-        Assert.False(Env.IsHealthy(), "doctor must be non-mutating and not start the daemon");
+        Assert.False(
+            await Env.IsHealthyAsync(),
+            "doctor must be non-mutating and not start the daemon");
     }
 
     public void Dispose()

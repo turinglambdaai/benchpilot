@@ -15,27 +15,27 @@ public sealed class AuthAndDiagnosticsTests(SharedDaemonFixture fixture)
     private E2EEnvironment Env => fixture.Environment;
 
     [Fact]
-    public void Cli_Reports_Product_Version()
+    public async Task Cli_Reports_Product_Version()
     {
-        var (exitCode, stdout) = Env.RunCli("--version");
+        var (exitCode, stdout) = await Env.RunCliAsync("--version");
         Assert.Equal(0, exitCode);
         Assert.Matches(@"^\d+\.\d+\.\d+$", stdout.Trim());
 
-        var (versionExit, versionOut) = Env.RunCli("version");
+        var (versionExit, versionOut) = await Env.RunCliAsync("version");
         Assert.Equal(0, versionExit);
         Assert.Equal(stdout.Trim(), versionOut.Trim());
     }
 
     [Fact]
-    public void Healthz_And_Status_Expose_Runtime_Version()
+    public async Task Healthz_And_Status_Expose_Runtime_Version()
     {
         using var http = new HttpClient();
-        using var health = http.GetAsync(new Uri(Env.Endpoint, "healthz")).GetAwaiter().GetResult();
+        using var health = await http.GetAsync(new Uri(Env.Endpoint, "healthz"));
         health.EnsureSuccessStatusCode();
-        using var healthBody = JsonDocument.Parse(health.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+        using var healthBody = JsonDocument.Parse(await health.Content.ReadAsStringAsync());
         Assert.Matches(@"^\d+\.\d+\.\d+$", healthBody.RootElement.GetProperty("version").GetString());
 
-        using (var status = Env.RunCliJson("status", "--json"))
+        using (var status = await Env.RunCliJsonAsync("status", "--json"))
         {
             Assert.Matches(
                 @"^\d+\.\d+\.\d+$",
@@ -44,32 +44,32 @@ public sealed class AuthAndDiagnosticsTests(SharedDaemonFixture fixture)
     }
 
     [Fact]
-    public void Api_Rejects_Requests_Without_Token()
+    public async Task Api_Rejects_Requests_Without_Token()
     {
         using var http = new HttpClient();
-        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(Env.Endpoint, "api/v1/status"));
-        using var response = http.SendAsync(request).GetAwaiter().GetResult();
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(Env.Endpoint, "api/v1/status"));
+        using var response = await http.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        using var body = JsonDocument.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal("unauthorized", body.RootElement.GetProperty("code").GetString());
         Assert.False(string.IsNullOrWhiteSpace(body.RootElement.GetProperty("error").GetString()));
     }
 
     [Fact]
-    public void Api_Rejects_Wrong_Token()
+    public async Task Api_Rejects_Wrong_Token()
     {
         using var http = new HttpClient();
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(Env.Endpoint, "api/v1/status"));
         request.Headers.Add("X-Benchpilot-Token", "definitely-not-the-token");
-        using var response = http.SendAsync(request).GetAwaiter().GetResult();
+        using var response = await http.SendAsync(request);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
-    public void Doctor_Reports_Healthy_Installation()
+    public async Task Doctor_Reports_Healthy_Installation()
     {
-        using var doctor = Env.RunCliJson("doctor", "--json");
+        using var doctor = await Env.RunCliJsonAsync("doctor", "--json");
         var root = doctor.RootElement;
 
         Assert.True(root.GetProperty("ok").GetBoolean());
@@ -81,12 +81,12 @@ public sealed class AuthAndDiagnosticsTests(SharedDaemonFixture fixture)
     }
 
     [Fact]
-    public void History_Records_Completed_Mutations()
+    public async Task History_Records_Completed_Mutations()
     {
-        Env.RunCliJson("power", "on", "--voltage", "12", "--settle-ms", "100", "--json");
-        Env.RunCliJson("power", "off", "--json");
+        await Env.RunCliJsonAsync("power", "on", "--voltage", "12", "--settle-ms", "100", "--json");
+        await Env.RunCliJsonAsync("power", "off", "--json");
 
-        using var history = Env.RunCliJson("history", "--limit", "5", "--json");
+        using var history = await Env.RunCliJsonAsync("history", "--limit", "5", "--json");
         var operations = history.RootElement.GetProperty("operations").EnumerateArray().ToList();
         Assert.Contains(operations, x => x.GetProperty("kind").GetString() == "power.on");
         Assert.Contains(operations, x => x.GetProperty("state").GetString() == "completed");

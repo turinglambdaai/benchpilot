@@ -11,17 +11,21 @@ namespace Benchpilot.E2E.Tests;
 /// classes in one collection sequentially, so bench state (power on/off,
 /// history) is deterministic inside the collection.
 /// </summary>
-public sealed class SharedDaemonFixture : IDisposable
+public sealed class SharedDaemonFixture : IAsyncLifetime
 {
-    public E2EEnvironment Environment { get; }
+    public E2EEnvironment Environment { get; private set; } = null!;
 
-    public SharedDaemonFixture()
+    public async Task InitializeAsync()
     {
         Environment = E2EEnvironment.Create();
-        Environment.StartDaemon();
+        await Environment.StartDaemonAsync().ConfigureAwait(false);
     }
 
-    public void Dispose() => Environment.Dispose();
+    public Task DisposeAsync()
+    {
+        Environment.Dispose();
+        return Task.CompletedTask;
+    }
 }
 
 [CollectionDefinition("shared-daemon")]

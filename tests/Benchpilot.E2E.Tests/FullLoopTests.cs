@@ -13,34 +13,34 @@ public sealed class FullLoopTests(SharedDaemonFixture fixture)
     private E2EEnvironment Env => fixture.Environment;
 
     [Fact]
-    public void Simulator_Ecu_Loop_Succeeds_Through_Cli()
+    public async Task Simulator_Ecu_Loop_Succeeds_Through_Cli()
     {
-        Env.RunCliJson("status", "--json");
-        Env.RunCliJson("power", "on", "--voltage", "12", "--settle-ms", "200", "--json");
-        Env.RunCliJson("serial", "open", "--json");
-        Env.RunCliJson("flash", "write", "build/app.elf", "--json");
+        await Env.RunCliJsonAsync("status", "--json");
+        await Env.RunCliJsonAsync("power", "on", "--voltage", "12", "--settle-ms", "200", "--json");
+        await Env.RunCliJsonAsync("serial", "open", "--json");
+        await Env.RunCliJsonAsync("flash", "write", "build/app.elf", "--json");
 
-        using (var wait = Env.RunCliJson("serial", "wait", "Ready", "--timeout-ms", "5000", "--json"))
+        using (var wait = await Env.RunCliJsonAsync("serial", "wait", "Ready", "--timeout-ms", "5000", "--json"))
         {
             Assert.True(wait.RootElement.GetProperty("matched").GetBoolean());
         }
 
-        using (var check = Env.RunCliJson("power", "check", "--lt-ma", "100", "--json"))
+        using (var check = await Env.RunCliJsonAsync("power", "check", "--lt-ma", "100", "--json"))
         {
             Assert.True(check.RootElement.GetProperty("passed").GetBoolean());
         }
 
-        Env.RunCliJson("power", "off", "--json");
+        await Env.RunCliJsonAsync("power", "off", "--json");
     }
 
     [Fact]
-    public void Unmatched_Serial_Wait_Returns_Exit_Code_1_With_Failure_Evidence()
+    public async Task Unmatched_Serial_Wait_Returns_Exit_Code_1_With_Failure_Evidence()
     {
         // The simulator only drives its serial line while power is on.
-        Env.RunCliJson("power", "on", "--voltage", "12", "--settle-ms", "100", "--json");
-        Env.RunCliJson("serial", "open", "--json");
+        await Env.RunCliJsonAsync("power", "on", "--voltage", "12", "--settle-ms", "100", "--json");
+        await Env.RunCliJsonAsync("serial", "open", "--json");
 
-        var (exitCode, stdout) = Env.RunCli(
+        var (exitCode, stdout) = await Env.RunCliAsync(
             "serial", "wait", "__E2E_NEVER_MATCH__", "--timeout-ms", "50", "--json");
         // Assertion-style failure: the observation itself executed fine
         // (ok=true) but nothing matched, so the CLI maps it to exit code 1.
@@ -54,7 +54,7 @@ public sealed class FullLoopTests(SharedDaemonFixture fixture)
 
         // The failed observation must produce bounded evidence through the
         // same CLI path, including correlated power context.
-        using (var evidence = Env.RunCliJson("observe", "evidence", observationId!, "--json"))
+        using (var evidence = await Env.RunCliJsonAsync("observe", "evidence", observationId!, "--json"))
         {
             var kinds = evidence.RootElement.GetProperty("items")
                 .EnumerateArray()
@@ -67,13 +67,13 @@ public sealed class FullLoopTests(SharedDaemonFixture fixture)
     }
 
     [Fact]
-    public void Runtime_Deadline_Exceeds_Semantic_Wait_And_Returns_Exit_Code_6()
+    public async Task Runtime_Deadline_Exceeds_Semantic_Wait_And_Returns_Exit_Code_6()
     {
         // The simulator only drives its serial line while power is on.
-        Env.RunCliJson("power", "on", "--voltage", "12", "--settle-ms", "100", "--json");
-        Env.RunCliJson("serial", "open", "--json");
+        await Env.RunCliJsonAsync("power", "on", "--voltage", "12", "--settle-ms", "100", "--json");
+        await Env.RunCliJsonAsync("serial", "open", "--json");
 
-        var (exitCode, stdout) = Env.RunCli(
+        var (exitCode, stdout) = await Env.RunCliAsync(
             "serial", "wait", "__E2E_DEADLINE__", "--timeout-ms", "5000", "--deadline-ms", "100", "--json");
         Assert.Equal(6, exitCode);
 
@@ -83,9 +83,9 @@ public sealed class FullLoopTests(SharedDaemonFixture fixture)
     }
 
     [Fact]
-    public void Simulator_Bench_Validate_Is_Not_Ready_For_Real_Ecu()
+    public async Task Simulator_Bench_Validate_Is_Not_Ready_For_Real_Ecu()
     {
-        var (exitCode, stdout) = Env.RunCli("bench", "validate", "--target", "demo", "--json");
+        var (exitCode, stdout) = await Env.RunCliAsync("bench", "validate", "--target", "demo", "--json");
         Assert.Equal(1, exitCode);
 
         using var report = JsonDocument.Parse(stdout);
