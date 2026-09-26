@@ -314,6 +314,10 @@ public sealed class BenchClient : IDisposable
         CancellationToken ct)
     {
         using var request = new HttpRequestMessage(method, relativePath);
+        var token = LocalAuth.ReadToken();
+        if (token is not null)
+            request.Headers.Add(LocalAuth.HeaderName, token);
+
         if (body is not null)
             request.Content = JsonContent.Create(body, options: JsonOptions);
 

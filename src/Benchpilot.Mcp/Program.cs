@@ -20,7 +20,10 @@ builder.Services.AddMcpServer()
 
 // The MCP process is now a thin protocol adapter. It never owns hardware.
 // benchpilotd is the single resident process that owns live resources/state.
+// Agents usually cannot prepare a terminal, so the adapter starts the daemon
+// on demand and then shares the same resident state as the CLI.
 var endpoint = BenchClient.ResolveEndpoint();
+await RuntimeAutoStart.EnsureRunningAsync(endpoint);
 builder.Services.AddSingleton(new BenchClient(endpoint));
 
 await builder.Build().RunAsync();

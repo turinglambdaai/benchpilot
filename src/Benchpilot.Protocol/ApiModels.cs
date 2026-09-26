@@ -35,7 +35,8 @@ public record RuntimeStatusResult(
     string? DefaultTarget,
     IReadOnlyList<TargetSummary> Targets,
     IReadOnlyList<ResourceSummary> Resources,
-    string? Error = null);
+    string? Error = null,
+    string? RuntimeVersion = null);
 
 public record OperationSummary(
     string Id,

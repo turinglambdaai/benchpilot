@@ -35,8 +35,28 @@ var drivers = new BenchDriverRegistry(new IBenchResourceFactory[]
 });
 var runtime = drivers.CreateRuntime(profile);
 
+// Detached/autostart mode: the parent shell is short-lived, so console output
+// is disabled (a full stdout pipe would block the daemon) and durable logs
+// go to the requested file instead.
+var quietConsole = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("BENCHPILOT_QUIET"));
+var logFilePath = Environment.GetEnvironmentVariable("BENCHPILOT_LOG_FILE");
+
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(endpoint.GetLeftPart(UriPartial.Authority));
+if (quietConsole)
+    builder.Logging.ClearProviders();
+if (!string.IsNullOrWhiteSpace(logFilePath))
+{
+    builder.Logging.AddProvider(new SimpleFileLoggerProvider(logFilePath));
+    builder.Logging.SetMinimumLevel(LogLevel.Information);
+}
+
+// The daemon binds to loopback only, but any local process could still call
+// it. A per-user token file makes the API usable by the same user's shells
+// while rejecting every other local caller. healthz stays open so autostart
+// and monitoring can probe liveness without credentials.
+var apiToken = LocalAuth.ResolveOrCreateToken();
+builder.Services.AddSingleton(apiToken);
 builder.Services.AddSingleton(profile);
 builder.Services.AddSingleton(drivers);
 // Register the already-created instance so the host shutdown service, not the
@@ -48,6 +68,31 @@ builder.Services.AddHostedService<RuntimeShutdownService>();
 var app = builder.Build();
 var lifecycle = app.Services.GetRequiredService<RuntimeHostLifecycle>();
 app.Lifetime.ApplicationStopping.Register(lifecycle.BeginStopping);
+
+// Authentication precedes every other consideration: an unauthenticated
+// caller learns nothing, not even shutdown state. healthz stays open.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/healthz"))
+    {
+        await next();
+        return;
+    }
+
+    var presented = context.Request.Headers[LocalAuth.HeaderName].FirstOrDefault();
+    if (!string.Equals(presented, apiToken, StringComparison.Ordinal))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await context.Response.WriteAsJsonAsync(new ApiError(
+            false,
+            "unauthorized",
+            "Missing or invalid BenchPilot token. The token file is created by benchpilotd at " +
+            LocalAuth.TokenFilePath + "; clients read it automatically or honor BENCHPILOT_TOKEN."));
+        return;
+    }
+
+    await next();
+});
 
 // Once shutdown begins no new non-health request is admitted. Requests that
 // crossed this middleware immediately before ApplicationStopping remain counted
@@ -78,9 +123,9 @@ app.Use(async (context, next) =>
 app.MapGet("/healthz", () =>
     lifecycle.IsStopping
         ? Results.Json(
-            new { ok = false, state = "stopping" },
+            new { ok = false, state = "stopping", version = BenchpilotRuntimeInfo.Version },
             statusCode: StatusCodes.Status503ServiceUnavailable)
-        : Results.Ok(new { ok = true, state = "running" }));
+        : Results.Ok(new { ok = true, state = "running", version = BenchpilotRuntimeInfo.Version }));
 
 app.MapGet($"{BenchpilotApi.Prefix}/status", (BenchRuntime runtime) =>
 {
@@ -108,7 +153,8 @@ app.MapGet($"{BenchpilotApi.Prefix}/status", (BenchRuntime runtime) =>
         runtime.Profile.SchemaVersion,
         runtime.Profile.DefaultTarget,
         targets,
-        resources));
+        resources,
+        RuntimeVersion: BenchpilotRuntimeInfo.Version));
 });
 
 app.MapGet($"{BenchpilotApi.Prefix}/operations", (BenchRuntime runtime) =>
@@ -413,7 +459,8 @@ app.MapPost($"{BenchpilotApi.Prefix}/serial/send", async (
         ct)));
 
 app.Logger.LogInformation(
-    "BenchPilot Runtime '{BenchName}' listening on {Endpoint}. Profile: {Profile}. Drivers: {Drivers}",
+    "BenchPilot Runtime {Version} ('{BenchName}') listening on {Endpoint}. Profile: {Profile}. Drivers: {Drivers}",
+    BenchpilotRuntimeInfo.Version,
     profile.Name,
     endpoint.GetLeftPart(UriPartial.Authority),
     string.IsNullOrWhiteSpace(profilePath) ? "built-in simulator" : profilePath,

@@ -6,6 +6,8 @@
     <Authors>turinglambdaai</Authors>
     <Copyright>Copyright © 2026 turinglambdaai</Copyright>
     <RepositoryUrl>https://github.com/turinglambdaai/benchpilot</RepositoryUrl>
+    <!-- Release workflows override this with the pushed tag (vX.Y.Z -> X.Y.Z). -->
+    <VersionPrefix>0.4.0</VersionPrefix>
   </PropertyGroup>
 
 </Project>
