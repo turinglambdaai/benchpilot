@@ -13,6 +13,14 @@ var profile = string.IsNullOrWhiteSpace(profilePath)
     ? ProfileLoader.DefaultSimulator()
     : ProfileLoader.Load(profilePath);
 
+// Autostart mode: before anything can write to (or merely keep open) the
+// console we inherited from the spawning shell, release those handles. A
+// daemon holding its parent's stdout pipe prevents the parent's readers
+// from ever seeing EOF, hanging shells, CI and test harnesses.
+var quietConsole = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("BENCHPILOT_QUIET"));
+if (quietConsole)
+    StdioDetach.DisconnectConsole();
+
 var endpointText = Environment.GetEnvironmentVariable("BENCHPILOT_ENDPOINT");
 if (string.IsNullOrWhiteSpace(endpointText))
     endpointText = "http://127.0.0.1:5640";
@@ -35,10 +43,8 @@ var drivers = new BenchDriverRegistry(new IBenchResourceFactory[]
 });
 var runtime = drivers.CreateRuntime(profile);
 
-// Detached/autostart mode: the parent shell is short-lived, so console output
-// is disabled (a full stdout pipe would block the daemon) and durable logs
-// go to the requested file instead.
-var quietConsole = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("BENCHPILOT_QUIET"));
+// Detached/autostart mode continues: console output stays disabled and
+// durable logs go to the requested file instead.
 var logFilePath = Environment.GetEnvironmentVariable("BENCHPILOT_LOG_FILE");
 
 var builder = WebApplication.CreateBuilder(args);

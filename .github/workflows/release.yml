@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [win-x64, linux-x64, linux-arm64, osx-arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Determine version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish self-contained single-file shells
+        run: |
+          VER="${{ steps.version.outputs.version }}"
+          RID="${{ matrix.rid }}"
+          STAGE="stage/$RID"
+          mkdir -p "$STAGE"
+          for project in Benchpilot.RuntimeHost Benchpilot.Cli Benchpilot.Mcp; do
+            dotnet publish "src/$project" \
+              -c Release -r "$RID" \
+              --self-contained true \
+              -p:PublishSingleFile=true \
+              -p:IncludeNativeLibrariesForSelfExtract=true \
+              -p:Version="$VER" \
+              -o "$STAGE"
+          done
+
+      - name: Package
+        id: package
+        shell: bash
+        run: |
+          VER="${{ steps.version.outputs.version }}"
+          RID="${{ matrix.rid }}"
+          NAME="benchpilot-$VER-$RID"
+          mkdir "$NAME"
+          # Keep only the three shipped executables; publish output may also
+          # contain intermediate files when projects share one output dir.
+          mv stage/$RID/benchpilot* "$NAME"/
+          mkdir -p artifacts
+          if [[ "$RID" == win-x64 ]]; then
+            zip -q -r "artifacts/$NAME.zip" "$NAME"
+            echo "file=artifacts/$NAME.zip" >> "$GITHUB_OUTPUT"
+          else
+            tar -czf "artifacts/$NAME.tar.gz" "$NAME"
+            echo "file=artifacts/$NAME.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchpilot-${{ matrix.rid }}
+          path: artifacts/*
+          retention-days: 5
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --generate-notes \
+            --title "BenchPilot $GITHUB_REF_NAME" \
+            artifacts/*

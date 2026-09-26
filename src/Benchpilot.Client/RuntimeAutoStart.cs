@@ -89,6 +89,11 @@ public static class RuntimeAutoStart
             LocalAuth.LogDirectoryPath,
             $"runtime-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..8]}.log");
 
+        // Before process creation: without this the daemon inherits copies of
+        // this shell's stdout/stderr pipe handles and the caller's readers
+        // never see EOF (see StdioInheritance).
+        StdioInheritance.PreventInheritance();
+
         var psi = new ProcessStartInfo
         {
             FileName = daemonPath,

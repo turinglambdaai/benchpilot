@@ -14,5 +14,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Benchpilot.Core.Tests/Benchpilot.Core.Tests.csproj" />
+    <Project Path="tests/Benchpilot.E2E.Tests/Benchpilot.E2E.Tests.csproj" />
   </Folder>
 </Solution>
