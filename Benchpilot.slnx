@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Benchpilot.Core/Benchpilot.Core.csproj" />
+    <Project Path="src/Benchpilot.Diagnostics/Benchpilot.Diagnostics.csproj" />
     <Project Path="src/Benchpilot.Protocol/Benchpilot.Protocol.csproj" />
     <Project Path="src/Benchpilot.Runtime/Benchpilot.Runtime.csproj" />
     <Project Path="src/Benchpilot.Drivers.Serial/Benchpilot.Drivers.Serial.csproj" />
@@ -14,6 +15,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Benchpilot.Core.Tests/Benchpilot.Core.Tests.csproj" />
+    <Project Path="tests/Benchpilot.Diagnostics.Tests/Benchpilot.Diagnostics.Tests.csproj" />
     <Project Path="tests/Benchpilot.E2E.Tests/Benchpilot.E2E.Tests.csproj" />
   </Folder>
 </Solution>

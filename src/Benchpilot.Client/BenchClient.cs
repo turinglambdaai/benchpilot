@@ -307,6 +307,36 @@ public sealed class BenchClient : IDisposable
         Send<SerialSendResult>(HttpMethod.Post, WithExecutionOptions("api/v1/serial/send", target, deadlineMs),
             new SerialSendRequest(data), ct);
 
+    public Task<UdsRequestResult> UdsRequest(
+        string requestHex,
+        int? p2TimeoutMs,
+        int? p2StarTimeoutMs,
+        string? target = null,
+        CancellationToken ct = default) =>
+        Send<UdsRequestResult>(HttpMethod.Post, WithExecutionOptions("api/v1/uds/request", target, null),
+            new UdsRequestHttp(requestHex, p2TimeoutMs, p2StarTimeoutMs), ct);
+
+    public Task<UdsFlashResult> UdsFlash(
+        string firmware,
+        string? planPath,
+        long? address,
+        int? maxBlockPayload,
+        string? confirmTarget,
+        string? target = null,
+        int? deadlineMs = null,
+        CancellationToken ct = default) =>
+        Send<UdsFlashResult>(
+            HttpMethod.Post,
+            WithExecutionOptions("api/v1/uds/flash", target, deadlineMs),
+            new UdsFlashHttp(firmware, planPath, address, maxBlockPayload, confirmTarget),
+            ct);
+
+    public Task<DoipDiscoveryResult> DoipDiscover(
+        int? windowMs = null,
+        CancellationToken ct = default) =>
+        Send<DoipDiscoveryResult>(HttpMethod.Post, "api/v1/doip/discover",
+            new DoipDiscoverRequest(windowMs), ct);
+
     private async Task<T> Send<T>(
         HttpMethod method,
         string relativePath,

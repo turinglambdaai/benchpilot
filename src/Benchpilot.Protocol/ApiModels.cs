@@ -151,3 +151,28 @@ public record SerialOpenRequest(string? Port = null, int? Baud = null);
 public record SerialWaitRequest(string Pattern, int TimeoutMs = 10000);
 public record SerialWindowRequest(int Lines = 50, string? Filter = null);
 public record SerialSendRequest(string Data);
+// Diagnostics (UDS over ISO-TP/CAN or DoIP).
+
+public record UdsRequestHttp(
+    string RequestHex,
+    int? P2TimeoutMs = null,
+    int? P2StarTimeoutMs = null);
+
+public record UdsFlashHttp(
+    string? Firmware,
+    string? PlanPath = null,
+    long? Address = null,
+    int? MaxBlockPayload = null,
+    string? ConfirmTarget = null);
+
+public record DoipDiscoverRequest(int? WindowMs = null);
+
+public record DoipVehicleSummary(
+    string Vin,
+    string LogicalAddress,
+    string? IpAddress);
+
+public record DoipDiscoveryResult(
+    bool Ok,
+    IReadOnlyList<DoipVehicleSummary> Vehicles,
+    string? Error = null);

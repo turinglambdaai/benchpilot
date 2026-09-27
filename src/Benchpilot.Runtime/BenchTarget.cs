@@ -7,7 +7,7 @@ namespace Benchpilot.Runtime;
 /// never need to know which OS device/vendor adapter provides them. This is the
 /// single safety/validation choke point shared by IPC, MCP, CLI and GUI.
 /// </summary>
-public sealed class BenchTarget
+public sealed partial class BenchTarget
 {
     private readonly BenchRuntime _runtime;
     private readonly BenchTargetConfig _config;

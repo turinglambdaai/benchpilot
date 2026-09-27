@@ -238,7 +238,8 @@ public static class ProfileLoader
     }
 
     // Zero-config simulator profile. One composite simulator resource exposes
-    // power + serial + flash so all channels share the same virtual ECU state.
+    // power + serial + flash so all channels share the same virtual ECU state,
+    // and a separate diagnostics resource carries the simulated UDS ECU.
     public static BenchProfile DefaultSimulator() => new()
     {
         SchemaVersion = 1,
@@ -259,6 +260,16 @@ public static class ProfileLoader
                     ["firmware"] = JsonSerializer.SerializeToElement("build/app.elf"),
                 },
             },
+            ["sim.uds"] = new()
+            {
+                Driver = "sim-diagnostics",
+                Capabilities = ["diagnostics"],
+                Settings = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["requestId"] = JsonSerializer.SerializeToElement("0x7E0"),
+                    ["responseId"] = JsonSerializer.SerializeToElement("0x7E8"),
+                },
+            },
         },
         Targets = new Dictionary<string, BenchTargetConfig>(StringComparer.OrdinalIgnoreCase)
         {
@@ -271,6 +282,7 @@ public static class ProfileLoader
                     ["power"] = "sim.demo",
                     ["serial"] = "sim.demo",
                     ["flash"] = "sim.demo",
+                    ["diagnostics"] = "sim.uds",
                 },
             },
         },

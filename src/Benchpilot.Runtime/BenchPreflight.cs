@@ -28,6 +28,23 @@ public static class BenchPreflight
         foreach (var (resourceId, config) in resources.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
         {
             ct.ThrowIfCancellationRequested();
+            if (!runtime.Resources.IsRegistered(resourceId))
+            {
+                // A profile may declare resources whose driver factory is not
+                // composed into this host (for example a core-only test host).
+                // Preflight reports that as a failed check with remediation
+                // instead of throwing, so the rest of the bench stays usable.
+                checks.Add(new ResourcePreflightResult(
+                    resourceId,
+                    config.Driver,
+                    config.Capabilities,
+                    false,
+                    "Resource has no live driver instance in this host.",
+                    Error: $"Resource '{resourceId}' uses driver '{config.Driver}', which is not registered in this host. " +
+                        "Start benchpilotd with the driver's project referenced, or remove the resource from the profile."));
+                continue;
+            }
+
             var instance = runtime.Resources.Get<object>(resourceId);
 
             if (instance is not IResourceHealthCheck health)

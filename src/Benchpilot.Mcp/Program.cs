@@ -16,7 +16,8 @@ builder.Services.AddMcpServer()
     .WithTools<ObservationTools>()
     .WithTools<PowerTools>()
     .WithTools<FlashTools>()
-    .WithTools<SerialTools>();
+    .WithTools<SerialTools>()
+    .WithTools<DiagTools>();
 
 // The MCP process is now a thin protocol adapter. It never owns hardware.
 // benchpilotd is the single resident process that owns live resources/state.

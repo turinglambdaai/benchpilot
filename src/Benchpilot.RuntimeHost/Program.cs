@@ -1,4 +1,5 @@
 using Benchpilot.Core;
+using Benchpilot.Diagnostics.Doip;
 using Benchpilot.Drivers.JLink;
 using Benchpilot.Drivers.ScpiPower;
 using Benchpilot.Drivers.Serial;
@@ -37,6 +38,9 @@ if (!endpoint.IsLoopback)
 var drivers = new BenchDriverRegistry(new IBenchResourceFactory[]
 {
     new SimulatorResourceFactory(),
+    new SimDiagnosticsResourceFactory(),
+    new CanUdsResourceFactory(),
+    new DoipUdsResourceFactory(),
     new SystemSerialResourceFactory(),
     new JLinkResourceFactory(),
     new ScpiPowerResourceFactory(),
@@ -473,6 +477,74 @@ app.Logger.LogInformation(
     string.Join(", ", drivers.DriverNames.Order(StringComparer.OrdinalIgnoreCase)));
 
 await app.RunAsync();
+
+app.MapPost($"{BenchpilotApi.Prefix}/uds/request", async (
+    string? target,
+    UdsRequestHttp request,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.RequestHex))
+        return (IResult)Results.BadRequest(new ApiError(false, "validation", "requestHex cannot be empty."));
+
+    byte[] bytes;
+    try
+    {
+        bytes = HexBytes.Parse(request.RequestHex);
+    }
+    catch (ArgumentException ex)
+    {
+        return (IResult)Results.BadRequest(new ApiError(false, "validation", ex.Message));
+    }
+
+    return await Execute(() => runtime.Target(target).UdsRequest(
+        bytes,
+        request.P2TimeoutMs,
+        request.P2StarTimeoutMs,
+        null,
+        ct));
+});
+
+app.MapPost($"{BenchpilotApi.Prefix}/uds/flash", async (
+    string? target,
+    int? deadlineMs,
+    UdsFlashHttp request,
+    BenchRuntime runtime,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Firmware))
+        return (IResult)Results.BadRequest(new ApiError(
+            false,
+            "validation",
+            "firmware is required."));
+    if (request.Address is null && string.IsNullOrWhiteSpace(request.PlanPath))
+        return (IResult)Results.BadRequest(new ApiError(
+            false,
+            "validation",
+            "address is required when no planPath is given (for example 0x08000000)."));
+
+    return await Execute(() => runtime.Target(target).UdsFlash(
+        request.Firmware,
+        request.PlanPath,
+        request.Address,
+        request.MaxBlockPayload,
+        request.ConfirmTarget,
+        deadlineMs,
+        ct));
+});
+
+app.MapPost($"{BenchpilotApi.Prefix}/doip/discover", async (
+    DoipDiscoverRequest? request,
+    CancellationToken ct) =>
+{
+    var identities = await DoipClient.DiscoverAsync(request?.WindowMs ?? 800, ct);
+    return Results.Json(new DoipDiscoveryResult(
+        true,
+        identities.Select(x => new DoipVehicleSummary(
+            x.Vin,
+            $"0x{x.LogicalAddress:X4}",
+            x.IpAddress)).ToArray()));
+});
 
 static async Task<IResult> Execute<T>(Func<Task<T>> operation)
 {

@@ -18,12 +18,35 @@ public class PreflightTests
 
         var result = await runtime.Preflight();
 
-        Assert.True(result.Ok, result.Error);
+        // The default simulator profile also declares a diagnostics resource
+        // whose driver factory is not composed in this core-only host; that
+        // surfaces as a failed check with remediation, not as an exception.
+        Assert.False(result.Ok);
         Assert.Equal("demo", result.TargetId);
-        var resource = Assert.Single(result.Resources);
-        Assert.Equal("sim.demo", resource.ResourceId);
-        Assert.Equal("simulator", resource.Driver);
-        Assert.True(resource.Ok, resource.Error);
+        Assert.Equal(2, result.Resources.Count);
+
+        var sim = result.Resources.Single(x => x.ResourceId == "sim.demo");
+        Assert.Equal("simulator", sim.Driver);
+        Assert.True(sim.Ok, sim.Error);
+
+        var uds = result.Resources.Single(x => x.ResourceId == "sim.uds");
+        Assert.False(uds.Ok);
+        Assert.Contains("not registered", uds.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Simulator_preflight_all_ready_when_every_driver_is_composed()
+    {
+        var profile = ProfileLoader.DefaultSimulator();
+        var registry = new BenchResourceRegistry(profile);
+        registry.Register("sim.demo", new SimulatedBench());
+        registry.Register("sim.uds", new Benchpilot.Diagnostics.Channels.SimUdsChannel());
+        using var runtime = new BenchRuntime(profile, registry);
+
+        var result = await runtime.Preflight();
+
+        Assert.True(result.Ok, result.Error);
+        Assert.All(result.Resources, x => Assert.True(x.Ok, x.Error));
     }
 
     [Fact]

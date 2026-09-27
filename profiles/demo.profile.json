@@ -5,13 +5,27 @@
   "resources": {
     "sim.demo": {
       "driver": "simulator",
-      "capabilities": ["power", "serial", "flash"],
+      "capabilities": [
+        "power",
+        "serial",
+        "flash"
+      ],
       "settings": {
         "voltage": 12.0,
         "settleMs": 2000,
         "port": "SIM0",
         "baud": 115200,
         "firmware": "build/app.elf"
+      }
+    },
+    "sim.uds": {
+      "driver": "sim-diagnostics",
+      "capabilities": [
+        "diagnostics"
+      ],
+      "settings": {
+        "requestId": "0x7E0",
+        "responseId": "0x7E8"
       }
     }
   },
@@ -22,7 +36,8 @@
       "bindings": {
         "power": "sim.demo",
         "serial": "sim.demo",
-        "flash": "sim.demo"
+        "flash": "sim.demo",
+        "diagnostics": "sim.uds"
       }
     }
   },

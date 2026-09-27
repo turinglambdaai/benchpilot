@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Benchpilot.Client;
+using Benchpilot.Core;
 using Benchpilot.Protocol;
 
 return await BenchpilotCli.Run(args);
@@ -329,6 +330,100 @@ internal static class BenchpilotCli
                 return result.Ok ? 0 : 4;
             }
 
+            case ("uds", "request"):
+            {
+                var hex = RequirePositional(parsed, 2, "request hex");
+                var result = await client.UdsRequest(
+                    hex,
+                    parsed.GetNullableInt("p2-ms"),
+                    parsed.GetNullableInt("p2-star-ms"),
+                    target,
+                    ct);
+                Print(result, parsed.Json);
+                if (!result.Ok) return 4;
+                return result.Positive ? 0 : 1;
+            }
+
+            case ("uds", "read-did"):
+            {
+                var didText = RequirePositional(parsed, 2, "did");
+                if (!TryParseNumber(didText, out var did) || did is < 0 or > 0xFFFF)
+                    throw new ArgumentException($"Invalid DID: '{didText}' (expected 0x0000-0xFFFF).");
+                var request = new byte[]
+                {
+                    0x22,
+                    (byte)((((ushort)did!) >> 8) & 0xFF),
+                    (byte)((ushort)did! & 0xFF),
+                };
+                var result = await client.UdsRequest(
+                    HexBytes.ToHex(request),
+                    parsed.GetNullableInt("p2-ms"),
+                    parsed.GetNullableInt("p2-star-ms"),
+                    target,
+                    ct);
+                Print(result, parsed.Json);
+                if (!result.Ok) return 4;
+                return result.Positive ? 0 : 1;
+            }
+
+            case ("uds", "session"):
+            {
+                var levelText = RequirePositional(parsed, 2, "session level");
+                var level = levelText.ToLowerInvariant() switch
+                {
+                    "default" => 0x01,
+                    "programming" => 0x02,
+                    "extended" => 0x03,
+                    _ => TryParseNumber(levelText, out var raw) && raw is >= 1 and <= 0x7F ? raw : -1,
+                };
+                if (level < 0)
+                    throw new ArgumentException(
+                        $"Invalid session level '{levelText}' (default|programming|extended|0x01-0x7F).");
+                var request = new byte[] { 0x10, (byte)level };
+                var result = await client.UdsRequest(
+                    HexBytes.ToHex(request),
+                    parsed.GetNullableInt("p2-ms"),
+                    parsed.GetNullableInt("p2-star-ms"),
+                    target,
+                    ct);
+                Print(result, parsed.Json);
+                if (!result.Ok) return 4;
+                return result.Positive ? 0 : 1;
+            }
+
+            case ("uds", "flash"):
+            {
+                var firmware = RequirePositional(parsed, 2, "firmware path");
+                var confirmTarget = parsed.Get("confirm-target");
+                var addressText = parsed.Get("address");
+                long? address = null;
+                if (addressText is not null)
+                {
+                    if (!TryParseNumber(addressText, out var parsedAddress))
+                        throw new ArgumentException($"Invalid --address: '{addressText}' (expected for example 0x08000000).");
+                    address = parsedAddress;
+                }
+
+                var result = await client.UdsFlash(
+                    firmware,
+                    parsed.Get("plan"),
+                    address,
+                    parsed.GetNullableInt("max-block"),
+                    confirmTarget,
+                    target,
+                    deadlineMs,
+                    ct);
+                Print(result, parsed.Json);
+                return result.Ok ? 0 : 4;
+            }
+
+            case ("doip", "discover"):
+            {
+                var result = await client.DoipDiscover(parsed.GetNullableInt("window-ms"), ct);
+                Print(result, parsed.Json);
+                return result.Ok && result.Vehicles.Count > 0 ? 0 : 1;
+            }
+
             default:
                 throw new ArgumentException(
                     $"Unknown command: {string.Join(" ", parsed.Positionals)}");
@@ -389,6 +484,14 @@ internal static class BenchpilotCli
                     : (daemonPath is null
                         ? "The daemon is not reachable and no benchpilotd executable was found next to the CLI or on PATH."
                         : "The daemon will start automatically on the next benchpilot command.")));
+    }
+
+    private static bool TryParseNumber(string text, out int value)
+    {
+        var cleaned = text.Trim();
+        if (cleaned.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            return int.TryParse(cleaned[2..], System.Globalization.NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+        return int.TryParse(cleaned, System.Globalization.NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
     }
 
     private static ApiError UnavailableError(HttpRequestException ex, Uri endpoint, CliArguments parsed)
@@ -454,6 +557,13 @@ Usage:
   benchpilot serial wait <pattern>  [--target ID] [--timeout-ms N] [--deadline-ms N] [--json]
   benchpilot serial window          [--target ID] [--lines N] [--filter TEXT] [--deadline-ms N] [--json]
   benchpilot serial send <data>     [--target ID] [--deadline-ms N] [--json]
+
+  benchpilot uds request <hex>      [--target ID] [--p2-ms N] [--p2-star-ms N] [--json]
+  benchpilot uds read-did <did>     [--target ID] [--json]
+  benchpilot uds session <level>    [--target ID] [--json]
+  benchpilot uds flash <firmware>   [--target ID] (--address 0xA | --plan FILE) [--max-block N]
+                                    [--confirm-target ID] [--deadline-ms N] [--json]
+  benchpilot doip discover          [--window-ms N] [--json]
 
   benchpilot version | --version
 
