@@ -24,4 +24,8 @@
     real processes. The solution build (dotnet build) produces them first.
   -->
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Benchpilot.Protocol\Benchpilot.Protocol.csproj" />
+  </ItemGroup>
+
 </Project>

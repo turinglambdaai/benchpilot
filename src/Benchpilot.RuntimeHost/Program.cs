@@ -468,16 +468,6 @@ app.MapPost($"{BenchpilotApi.Prefix}/serial/send", async (
         deadlineMs,
         ct)));
 
-app.Logger.LogInformation(
-    "BenchPilot Runtime {Version} ('{BenchName}') listening on {Endpoint}. Profile: {Profile}. Drivers: {Drivers}",
-    BenchpilotRuntimeInfo.Version,
-    profile.Name,
-    endpoint.GetLeftPart(UriPartial.Authority),
-    string.IsNullOrWhiteSpace(profilePath) ? "built-in simulator" : profilePath,
-    string.Join(", ", drivers.DriverNames.Order(StringComparer.OrdinalIgnoreCase)));
-
-await app.RunAsync();
-
 app.MapPost($"{BenchpilotApi.Prefix}/uds/request", async (
     string? target,
     UdsRequestHttp request,
@@ -545,6 +535,16 @@ app.MapPost($"{BenchpilotApi.Prefix}/doip/discover", async (
             $"0x{x.LogicalAddress:X4}",
             x.IpAddress)).ToArray()));
 });
+
+app.Logger.LogInformation(
+    "BenchPilot Runtime {Version} ('{BenchName}') listening on {Endpoint}. Profile: {Profile}. Drivers: {Drivers}",
+    BenchpilotRuntimeInfo.Version,
+    profile.Name,
+    endpoint.GetLeftPart(UriPartial.Authority),
+    string.IsNullOrWhiteSpace(profilePath) ? "built-in simulator" : profilePath,
+    string.Join(", ", drivers.DriverNames.Order(StringComparer.OrdinalIgnoreCase)));
+
+await app.RunAsync();
 
 static async Task<IResult> Execute<T>(Func<Task<T>> operation)
 {

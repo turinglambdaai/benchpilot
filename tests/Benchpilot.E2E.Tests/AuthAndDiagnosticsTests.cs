@@ -81,6 +81,39 @@ public sealed class AuthAndDiagnosticsTests(SharedDaemonFixture fixture)
     }
 
     [Fact]
+    public async Task Uds_Routes_Are_Served_Through_Resident_Daemon()
+    {
+        // Guards against endpoint registration regressions: these routes must
+        // answer over real HTTP, not 404 at the middleware pipeline end.
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Add("X-Benchpilot-Token", LocalAuthToken());
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            new Uri(Env.Endpoint, "api/v1/uds/request"))
+        {
+            Content = JsonContent.Create(new { requestHex = "22F195" }),
+        };
+        using var response = await http.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.True(body.RootElement.GetProperty("positive").GetBoolean());
+
+        using var discover = new HttpRequestMessage(
+            HttpMethod.Post,
+            new Uri(Env.Endpoint, "api/v1/doip/discover"))
+        {
+            Content = JsonContent.Create(new { windowMs = 200 }),
+        };
+        using var discoverResponse = await http.SendAsync(discover);
+        Assert.Equal(HttpStatusCode.OK, discoverResponse.StatusCode);
+    }
+
+    private static string LocalAuthToken() =>
+        Benchpilot.Protocol.LocalAuth.ReadToken()
+            ?? throw new InvalidOperationException("Daemon has not created the token file yet.");
+
+    [Fact]
     public async Task History_Records_Completed_Mutations()
     {
         await Env.RunCliJsonAsync("power", "on", "--voltage", "12", "--settle-ms", "100", "--json");
