@@ -162,22 +162,28 @@ bench validate
 
 runs against a physical ECU through both CLI and an Agent, and a failed run returns enough bounded evidence to diagnose the failure without manually opening vendor tools.
 
-## Automotive communication vertical slice — after real-bench exit criterion
+## Automotive communication vertical slice — diagnostics and UDS flash shipped
 
-Goal: make the same real ECU observable through its vehicle network.
+Goal: make the same real ECU observable and programmable through its vehicle network.
 
-Initial adapters:
+Status: UDS diagnostics and the UDS flash workflow are implemented for ISO-TP over CAN (SocketCAN / PCAN) and for DoIP, with simulated ECUs covering the full chain in CI. Remaining below is signal-level observation work.
 
-- [ ] SocketCAN on Linux;
-- [ ] PEAK PCAN on Windows.
+Adapters:
+
+- [x] SocketCAN on Linux;
+- [x] PEAK PCAN on Windows;
+- [x] DoIP (Ethernet, ISO 13400-2).
 
 Protocol/semantic layer:
 
+- [x] ISO-TP transport (ISO 15765-2);
+- [x] UDS client with P2/P2*, NRC taxonomy and pending handling (ISO 14229);
+- [x] UDS flash workflow engine (session, security access, erase, download,
+  verify, reset) with per-step audit and declarative plans;
 - [ ] CAN / CAN FD transmit and capture;
 - [ ] bounded capture artifacts;
 - [ ] DBC decoding;
-- [ ] `wait_signal` / `assert_signal` / `measure_signal` observations;
-- [ ] ISO-TP transport.
+- [ ] `wait_signal` / `assert_signal` / `measure_signal` observations.
 
 Exit criterion: Agent validates ECU behavior from decoded signals without consuming an unbounded CAN log.
 
@@ -187,23 +193,26 @@ Goal: make programming a first-class, safe transaction rather than a collection 
 
 UDS core:
 
-- [ ] sessions and timing (`P2`, `P2*`, `S3`);
-- [ ] structured NRC handling, including `ResponsePending`;
-- [ ] DID / DTC / RoutineControl primitives;
-- [ ] Security Provider abstraction;
-- [ ] ISO-TP first, DoIP later.
+- [x] sessions and timing (`P2`, `P2*`, `S3`);
+- [x] structured NRC handling, including `ResponsePending`;
+- [x] DID read/write and RoutineControl primitives;
+- [x] Security Access with pluggable named key derivers;
+- [x] ISO-TP and DoIP transports behind one client;
+- [ ] DTC primitives;
+- [ ] Security Provider abstraction for vendor seed-key algorithms beyond the
+  registered derivers.
 
 Flash Engine:
 
+- [x] typed flash workflow / execution plan (declarative JSON);
+- [x] memory segments with per-segment files or inline data;
+- [x] erase / RequestDownload / TransferData / TransferExit / verify / reset;
+- [x] block-level retries;
+- [x] audit trace and machine-readable result;
 - [ ] BIN / Intel HEX / S-record image model;
-- [ ] memory segments and metadata;
-- [ ] typed flash workflow / execution plan;
 - [ ] preflight target fingerprint;
 - [ ] voltage/current monitoring during programming;
-- [ ] erase / RequestDownload / TransferData / TransferExit / verify / reset;
 - [ ] explicit recovery strategies;
-- [ ] audit trace and machine-readable result;
-- [ ] declarative workflow format before a custom language;
 - [ ] visual workflow editor only after the typed model is stable.
 
 Exit criterion: the same flash definition can be executed by GUI, CLI, CI and Agent with identical safety behavior.

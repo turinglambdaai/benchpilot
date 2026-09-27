@@ -68,6 +68,25 @@ Exit codes are a stable contract:
   `benchpilot cancel <operation-id> --json` if it is yours to cancel, or
   wait for completion.
 
+## UDS diagnostics and flashing
+
+The `diagnostics` capability (ISO-TP over CAN, or DoIP) exposes UDS:
+
+```bash
+benchpilot uds session programming --target ecu --json      # 0x10 02
+benchpilot uds read-did 0xF195 --target ecu --json          # version string
+benchpilot uds request "22 F1 95" --target ecu --json       # raw escape
+benchpilot doip discover --json                             # find DoIP ECUs
+benchpilot uds flash app.bin --address 0x08020000 --confirm-target ecu --json
+```
+
+`uds flash` is destructive and audited: it runs session -> security access ->
+erase -> download -> verify -> reset. On failure, read the per-step audit
+with `benchpilot evidence <operation-id>` before retrying; the failing step
+and its NRC (negative response code) say what to fix. Without hardware the
+simulator exposes the same interface against a virtual UDS ECU — rehearse
+there first.
+
 ## Safety rules
 
 - `bench validate` and `preflight` are always non-destructive; run them first

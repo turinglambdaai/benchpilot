@@ -280,6 +280,54 @@ A `bench validate` exit code of `1` does **not** mean the readiness API failed. 
 
 A deadline failure is returned as `code=deadline_exceeded` with `deadlineMs` and `deadlineAtUtc`; active and history records also expose deadline metadata. Emergency power-off intentionally has no Runtime deadline once accepted, because a safety shutdown must not be abandoned just because a shell budget expired.
 
+## UDS diagnostics and flashing (CAN and DoIP)
+
+BenchPilot includes a full UDS (ISO 14229) diagnostic stack: ISO-TP (ISO 15765-2) over SocketCAN/PCAN, and DoIP (ISO 13400-2) over Ethernet. The same flash engine drives both transports.
+
+```bash
+# Discover DoIP entities on the network (a 100BASE-T1 media converter with
+# an RJ45 cable to the laptop is enough to reach a real ECU):
+benchpilot doip discover --json
+
+# Enter programming session and read a version DID:
+benchpilot uds session programming --target ecu --json
+benchpilot uds read-did 0xF195 --target ecu --json
+
+# Raw UDS escape (expert):
+benchpilot uds request "10 03" --target ecu --json
+
+# Destructive UDS flash over the bound diagnostic channel:
+benchpilot uds flash build/app.bin --address 0x08020000   --confirm-target ecu --target ecu --deadline-ms 300000 --json
+```
+
+Multi-segment images use a declarative flash plan:
+
+```json
+{
+  "segments": [
+    { "address": 134217728, "file": "bootloader.bin" },
+    { "address": 134480896, "file": "application.bin" }
+  ],
+  "session": 2,
+  "securityLevel": 1,
+  "keyDeriver": "xor0x5a",
+  "maxBlockPayload": 1024
+}
+```
+
+```bash
+benchpilot uds flash build/app.bin --plan flash.plan.json --confirm-target ecu --json
+```
+
+Every flash step (session, security access, erase, per-segment download,
+verify, reset) is audited in the operation evidence, so a failed programming
+session explains itself: `benchpilot history`, then `benchpilot evidence <id>`.
+
+Without hardware, the built-in simulator includes a virtual UDS ECU behind
+the real protocol stack: `benchpilot uds read-did 0xF195` against the default
+`demo` target answers through ISO-TP on a simulated CAN bus, and the same
+flash workflow can be rehearsed end to end before touching a real bench.
+
 ## Local security model
 
 `benchpilotd` binds to loopback only and refuses non-loopback endpoints. Loopback alone is not an auth boundary on a shared machine, so the API additionally requires a per-user token:
@@ -371,12 +419,10 @@ Future CAN/protocol/Flash/Studio projects plug into these boundaries rather than
 Near-term work remains a vertical slice rather than broad protocol coverage:
 
 1. validate `system-serial` + J-Link + SCPI power against one physical ECU and check in a repeatable known-good profile;
-2. add a richer vendor-neutral device/runtime error taxonomy and production-grade evidence/artifact references;
-3. CAN/CAN FD + DBC observations via SocketCAN and PCAN;
-4. ISO-TP + UDS;
-5. professional, hardware-aware UDS Flash Engine;
-6. DoIP after the CAN/UDS path is strong;
-7. Studio GUI over the same Runtime API.
+2. validate the UDS flash workflow against real ECUs over CAN and DoIP;
+3. CAN/CAN FD capture + DBC decoding and signal observations;
+4. a richer vendor-neutral device/runtime error taxonomy and production-grade evidence/artifact references;
+5. Studio GUI over the same Runtime API.
 
 See [ROADMAP.md](ROADMAP.md).
 

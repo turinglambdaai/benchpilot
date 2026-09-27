@@ -2,6 +2,36 @@
 
 All notable changes to BenchPilot are documented here.
 
+## 0.5.0 - 2026-09-27
+
+Diagnostics: the UDS flash workflow ships for both CAN and automotive Ethernet.
+
+### Added
+
+- `Benchpilot.Diagnostics`: ISO-TP (ISO 15765-2) codec and endpoint, UDS
+  client (ISO 14229) with P2/P2* timing and NRC 0x78 handling, and a
+  transport-independent `UdsFlashEngine`: session -> security access ->
+  erase -> per-segment download (RequestDownload/TransferData/Exit, block
+  retries) -> CRC32 verify routine -> ECU reset, fully audited per step.
+- DoIP client (ISO 13400-2): UDP vehicle discovery, TCP routing activation,
+  alive-check handling, diagnostic message transport. A 100BASE-T1 media
+  converter plus RJ45 is enough to drive a real DoIP ECU from a laptop.
+- Real CAN drivers: SocketCAN (Linux) and PCAN-Basic (Windows).
+- Simulated diagnostics: a virtual UDS ECU behind the real protocol stack on
+  a simulated CAN bus, plus a simulated DoIP entity — the complete flash
+  workflow runs hardware-free in CI on Windows and Linux.
+- CLI: `uds request`, `uds read-did`, `uds session`, `uds flash`, and
+  `doip discover`. API: `/uds/request`, `/uds/flash`, `/doip/discover`.
+  MCP: `UdsRequest`, `UdsReadDid`, `UdsFlash`, `DoipDiscover`.
+- Repository hygiene: merged feature branches pruned; docs example profile
+  for CAN and DoIP benches.
+
+### Notes
+
+- `uds flash` is a destructive mutation: it participates in the same
+  confirm-target policy as J-Link flash. Session/security state stays
+  resident in the daemon like a real tool session.
+
 ## 0.4.0 - 2026-09-26
 
 Commercial readiness of the shell layer: the product is now installable,
