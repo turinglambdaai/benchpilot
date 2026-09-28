@@ -61,14 +61,13 @@ public static class SelfUpdater
     /// </summary>
     public static string PlatformRid()
     {
+        var arm64 = RuntimeInformation.ProcessArchitecture == Architecture.Arm64;
         if (OperatingSystem.IsWindows())
-            return "win-x64";
+            return arm64 ? "win-arm64" : "win-x64";
         if (OperatingSystem.IsMacOS())
-            return "osx-arm64";
+            return arm64 ? "osx-arm64" : "osx-x64";
         if (OperatingSystem.IsLinux())
-            return RuntimeInformation.ProcessArchitecture == Architecture.Arm64
-                ? "linux-arm64"
-                : "linux-x64";
+            return arm64 ? "linux-arm64" : "linux-x64";
         throw new PlatformNotSupportedException(
             "No BenchPilot package exists for this platform.");
     }

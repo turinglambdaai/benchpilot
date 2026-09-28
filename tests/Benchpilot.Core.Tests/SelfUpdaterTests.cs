@@ -19,15 +19,17 @@ public sealed class SelfUpdaterTests
 
     [Theory]
     [InlineData("win-x64")]
+    [InlineData("win-arm64")]
     [InlineData("linux-x64")]
     [InlineData("linux-arm64")]
     [InlineData("osx-arm64")]
+    [InlineData("osx-x64")]
     public void Platform_Rid_Is_A_Package_Rid(string expectedOnSomePlatform)
     {
         var rid = SelfUpdater.PlatformRid();
         Assert.Contains(rid, new[]
         {
-            "win-x64", "linux-x64", "linux-arm64", "osx-arm64",
+            "win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-arm64", "osx-x64",
         });
     }
 
