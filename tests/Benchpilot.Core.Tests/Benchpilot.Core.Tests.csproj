@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Benchpilot.Core\Benchpilot.Core.csproj" />
+    <ProjectReference Include="..\..\src\Benchpilot.Client\Benchpilot.Client.csproj" />
     <ProjectReference Include="..\..\src\Benchpilot.Diagnostics\Benchpilot.Diagnostics.csproj" />
     <ProjectReference Include="..\..\src\Benchpilot.Drivers.JLink\Benchpilot.Drivers.JLink.csproj" />
     <ProjectReference Include="..\..\src\Benchpilot.Drivers.ScpiPower\Benchpilot.Drivers.ScpiPower.csproj" />

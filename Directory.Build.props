@@ -7,7 +7,7 @@
     <Copyright>Copyright © 2026 turinglambdaai</Copyright>
     <RepositoryUrl>https://github.com/turinglambdaai/benchpilot</RepositoryUrl>
     <!-- Release workflows override this with the pushed tag (vX.Y.Z -> X.Y.Z). -->
-    <VersionPrefix>0.5.0</VersionPrefix>
+    <VersionPrefix>0.5.1</VersionPrefix>
   </PropertyGroup>
 
 </Project>

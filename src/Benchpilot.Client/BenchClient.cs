@@ -331,6 +331,9 @@ public sealed class BenchClient : IDisposable
             new UdsFlashHttp(firmware, planPath, address, maxBlockPayload, confirmTarget),
             ct);
 
+    public Task<ShutdownResult> Shutdown(CancellationToken ct = default) =>
+        Send<ShutdownResult>(HttpMethod.Post, "api/v1/shutdown", null, ct);
+
     public Task<DoipDiscoveryResult> DoipDiscover(
         int? windowMs = null,
         CancellationToken ct = default) =>

@@ -137,6 +137,37 @@ internal static class BenchpilotCli
                 return result.Ok ? 0 : 1;
             }
 
+            case ("update", _):
+            {
+                var checkOnly = parsed.HasFlag("check");
+                if (checkOnly)
+                {
+                    var check = await SelfUpdater.CheckAsync(ct);
+                    Print(check, parsed.Json);
+                    return check.Error is null ? 0 : 4;
+                }
+
+                var result = await SelfUpdater.RunAsync(ct);
+                Print(result, parsed.Json);
+                return result.Ok ? 0 : 4;
+            }
+
+            case ("shutdown", _):
+            {
+                try
+                {
+                    var result = await client.Shutdown(ct);
+                    Print(result, parsed.Json);
+                    return result.Ok ? 0 : 4;
+                }
+                catch (HttpRequestException)
+                {
+                    // No daemon on the endpoint: shutdown is idempotent.
+                    Print(new ShutdownResult(true, "not_running"), parsed.Json);
+                    return 0;
+                }
+            }
+
             case ("doctor", _):
             {
                 var result = await DoctorAsync(client, endpoint, ct);
@@ -565,7 +596,18 @@ Usage:
                                     [--confirm-target ID] [--deadline-ms N] [--json]
   benchpilot doip discover          [--window-ms N] [--json]
 
+  benchpilot update [--check]       [--json]
+  benchpilot shutdown               [--json] [--endpoint URL]
+
   benchpilot version | --version
+
+Self-update:
+  `update --check` compares the installed version against the release feed
+  (GitHub releases of BENCHPILOT_UPDATE_REPO by default). `update` downloads
+  the platform archive, verifies SHA256SUMS.txt, stops the resident daemon
+  gracefully (refusing while hardware operations are active), swaps the
+  executables in place and leaves autostart to bring the daemon back. If an
+  agent hosts benchpilot-mcp, restart that MCP server after updating.
 
 Resident runtime:
   The first benchpilot command starts benchpilotd automatically (autostart)
@@ -623,6 +665,8 @@ Environment:
   BENCHPILOT_ENDPOINT    Runtime endpoint (default http://127.0.0.1:5640/)
   BENCHPILOT_TOKEN       Local API token (default: token file)
   BENCHPILOT_AUTOSTART   Set to 0 to disable automatic daemon start
+  BENCHPILOT_UPDATE_REPO GitHub repo for self-update (default turinglambdaai/benchpilot)
+  BENCHPILOT_UPDATE_FEED Generic update feed URL (test/self-host override)
 
 Exit codes:
   0 success / readiness passed
@@ -656,7 +700,7 @@ internal sealed record DoctorReport(
 internal sealed class CliArguments
 {
     private static readonly HashSet<string> Flags =
-        new(StringComparer.OrdinalIgnoreCase) { "json", "help", "version" };
+        new(StringComparer.OrdinalIgnoreCase) { "json", "help", "version", "check" };
 
     private readonly Dictionary<string, string?> _options =
         new(StringComparer.OrdinalIgnoreCase);

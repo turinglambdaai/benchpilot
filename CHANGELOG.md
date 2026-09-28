@@ -2,6 +2,23 @@
 
 All notable changes to BenchPilot are documented here.
 
+## 0.5.1 - 2026-09-28
+
+Self-update: the CLI upgrades itself from the release feed.
+
+### Added
+
+- `benchpilot update --check`: compares the installed version against the
+  release feed (GitHub releases; `BENCHPILOT_UPDATE_REPO` /
+  `BENCHPILOT_UPDATE_FEED` overrides) without touching anything.
+- `benchpilot update`: downloads the platform archive, verifies
+  `SHA256SUMS.txt`, refuses while hardware operations are active, stops the
+  resident daemon through the new graceful shutdown endpoint, swaps the
+  executables in place (`.old` backups; running shells renamed per Windows
+  rules) and lets autostart bring the daemon back.
+- `benchpilot shutdown`: idempotent graceful daemon stop (drains active work,
+  releases hardware handles) — also usable standalone.
+
 ## 0.5.0 - 2026-09-27
 
 Diagnostics: the UDS flash workflow ships for both CAN and automotive Ethernet.

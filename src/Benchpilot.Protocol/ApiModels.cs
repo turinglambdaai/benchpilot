@@ -176,3 +176,8 @@ public record DoipDiscoveryResult(
     bool Ok,
     IReadOnlyList<DoipVehicleSummary> Vehicles,
     string? Error = null);
+
+public record ShutdownResult(
+    bool Ok,
+    string State,
+    string? Error = null);

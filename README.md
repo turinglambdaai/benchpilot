@@ -136,6 +136,18 @@ cd benchpilot
 dotnet build -c Release
 ```
 
+### 0.5. Stay updated
+
+```bash
+benchpilot update --check   # compare against the latest release
+benchpilot update           # download, verify SHA256, stop the daemon
+                            # gracefully, swap in place, autostart restores it
+```
+
+The updater refuses to run while hardware operations are active, and leaves
+`.old` backups next to the replaced executables. If an agent hosts
+`benchpilot-mcp`, restart that MCP server after updating.
+
 ### 1. Just run a command
 
 There is no separate "start the runtime" step for casual and agent use: the

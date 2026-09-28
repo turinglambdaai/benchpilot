@@ -536,6 +536,19 @@ app.MapPost($"{BenchpilotApi.Prefix}/doip/discover", async (
             x.IpAddress)).ToArray()));
 });
 
+app.MapPost($"{BenchpilotApi.Prefix}/shutdown", (
+    BenchRuntime runtime,
+    RuntimeHostLifecycle lifecycle,
+    IHostApplicationLifetime lifetime) =>
+{
+    // Token-authenticated like every other endpoint: this is the graceful
+    // "drain active work, release hardware, exit" path used by humans, CI
+    // and the self-updater.
+    lifecycle.BeginStopping();
+    lifetime.StopApplication();
+    return Results.Json(new ShutdownResult(true, "stopping"));
+});
+
 app.Logger.LogInformation(
     "BenchPilot Runtime {Version} ('{BenchName}') listening on {Endpoint}. Profile: {Profile}. Drivers: {Drivers}",
     BenchpilotRuntimeInfo.Version,
