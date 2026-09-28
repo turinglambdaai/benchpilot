@@ -156,6 +156,9 @@ jobs:
         with:
           subject-path: artifacts/SHA256SUMS.txt
 
+      - name: Generate Homebrew formula and scoop manifest
+        run: bash scripts/gen-dist-manifests.sh "${GITHUB_REF_NAME#v}" artifacts
+
       - name: Extract release notes from CHANGELOG
         shell: bash
         run: |

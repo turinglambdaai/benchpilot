@@ -118,9 +118,25 @@ dotnet test
 
 ### 0. Install
 
-Download the package for your platform from the [latest release](https://github.com/turinglambdaai/benchpilot/releases/latest)
-(`benchpilot-<version>-<platform>.zip/.tar.gz`), unpack it and put the three
-executables on your `PATH`:
+One line per platform (downloads the latest release, verifies SHA256, installs
+the three executables into `~/.benchpilot/bin`):
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/turinglambdaai/benchpilot/main/scripts/install.sh | bash
+```
+
+```powershell
+# Windows PowerShell
+irm https://raw.githubusercontent.com/turinglambdaai/benchpilot/main/scripts/install.ps1 | iex
+```
+
+Package-manager routes: each release also carries a generated Homebrew
+formula (`benchpilot.rb`) and scoop manifest (`benchpilot.scoop.json`) — copy
+them into your tap/bucket, or install manually from the
+[latest release](https://github.com/turinglambdaai/benchpilot/releases/latest)
+(`benchpilot-<version>-<platform>.zip/.tar.gz`) and put the three executables
+on your `PATH`:
 
 | executable | role |
 | --- | --- |
