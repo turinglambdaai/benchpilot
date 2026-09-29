@@ -117,6 +117,22 @@ jobs:
             echo "file=artifacts/$NAME.tar.gz" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Build Debian package
+        if: matrix.rid == 'linux-x64'
+        shell: bash
+        run: bash packaging/linux/build-deb.sh "${{ steps.version.outputs.version }}" artifacts
+
+      - name: Install and remove Debian package
+        if: matrix.rid == 'linux-x64'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ./artifacts/benchpilot-*-linux-x64.deb
+          test -x /opt/benchpilot/benchpilot
+          test -L /usr/bin/benchpilot
+          sudo apt-get remove -y benchpilot
+          test ! -e /usr/bin/benchpilot
+
       - name: Attest build provenance
         uses: actions/attest@v4
         with:
