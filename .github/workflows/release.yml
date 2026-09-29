@@ -16,7 +16,7 @@ jobs:
   preflight:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Verify tag matches Directory.Build.props version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
@@ -35,7 +35,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
@@ -57,7 +57,7 @@ jobs:
       matrix:
         rid: [win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64, osx-x64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
@@ -154,7 +154,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v8
         with:
