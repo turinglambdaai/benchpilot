@@ -1,6 +1,6 @@
 # ADR 0001: Use .NET/C# for the hardware runtime; keep GUI technology decoupled
 
-- Status: Accepted
+- Status: Superseded by [ADR 0002](0002-racket-port.md) (2026-10-01), via this ADR's revisit criteria
 - Date: 2026-09-20
 
 ## Context

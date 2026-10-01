@@ -428,6 +428,8 @@ benchpilot/
 │   └── Benchpilot.Drivers.ScpiPower/ # TCP SCPI power-supply adapter
 ├── tests/
 │   └── Benchpilot.Core.Tests/
+├── racket/
+│   └── benchpilot/core/              # Racket port (ADR 0002): profiles + readiness
 ├── profiles/
 │   ├── demo.profile.json
 │   └── real-ecu.example.json
@@ -454,13 +456,16 @@ Near-term work remains a vertical slice rather than broad protocol coverage:
 
 See [ROADMAP.md](ROADMAP.md).
 
-## GUI and language strategy
+## Implementation language
 
-The hardware-facing Runtime is implemented in .NET/C# to reduce native/vendor integration risk. GUI technology is intentionally decoupled from Runtime.
-
-That means an Avalonia frontend is a conservative option, while a Racket/Glaze frontend remains viable if it demonstrates a concrete development-speed or UX advantage. Both would use `Benchpilot.Client` / the same versioned local API rather than owning devices.
-
-See [ADR 0001](docs/adr/0001-runtime-language.md).
+The shipped Runtime is implemented in .NET/C#, and the project is porting it
+to **Racket** ([ADR 0002](docs/adr/0002-racket-port.md), which supersedes
+[ADR 0001](docs/adr/0001-runtime-language.md)). The port proceeds in staged
+phases under a frozen API contract: until its final phase completes, the C#
+tree remains the shipping implementation and the Racket sources under
+`racket/` are the port under construction. GUI technology stays decoupled
+from the Runtime; any future Studio GUI would speak the same versioned local
+API rather than owning devices.
 
 ## Long-term flashing direction
 
