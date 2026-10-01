@@ -48,6 +48,8 @@
 ;; from driver settings; plan JSON never carries keys.
 ;; ----------------------------------------------------------------------------
 
+;; equal?-based: deriver names arrive as strings from other modules/plans,
+;; and eq? misses cross-module literals (CI-proven).
 (define (key-derivers-builtin)
   (hash "xor0x5a"
           (lambda (seed) (map (lambda (b) (bitwise-xor b #x5A)) seed))
