@@ -23,7 +23,14 @@
 
 (provide bench-client-run!
          parse-cli-args
-         last-printed-box)
+         last-printed-box
+         resolve-endpoint
+         api-call
+         require-ok
+         try-autostart
+         (struct-out exn:benchpilot:network)
+         (struct-out bench-client-error)
+         benchpilot-version)
 
 ;; ----------------------------------------------------------------------------
 ;; Errors: code → exit code, mirroring the C# BenchClientException switch.
