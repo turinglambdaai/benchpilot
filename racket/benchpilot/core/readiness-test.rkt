@@ -4,7 +4,8 @@
 ;; tests/Benchpilot.Core.Tests (BenchReadinessTests): mode determination,
 ;; placeholder scanning and safety value checks.
 
-(require benchpilot/core/profile
+(require benchpilot/core/contracts
+         benchpilot/core/profile
          benchpilot/core/readiness)
 
 (module+ test
@@ -61,11 +62,12 @@ JSON
   (test-case "safety-value-check renders the contract message for present values"
     (define check
       (safety-value-check "safety.max-voltage" "maxVoltage" 12.5 "V" "Set safety.maxVoltage."))
-    (check-true (readiness-check-passed check))
-    (check-equal? (readiness-check-severity check) "error")
-    (check-equal? (readiness-check-summary check) "Bench safety maxVoltage is configured at 12.5 V.")
-    (check-false (readiness-check-remediation check))
-    (check-equal? (readiness-check-details check) (hash "value" "12.5" "unit" "V")))
+    (check-true (bench-readiness-check-passed check))
+    (check-equal? (bench-readiness-check-severity check) "error")
+    (check-equal? (bench-readiness-check-summary check)
+                  "Bench safety maxVoltage is configured at 12.5 V.")
+    (check-false (bench-readiness-check-remediation check))
+    (check-equal? (bench-readiness-check-details check) (hash "value" "12.5" "unit" "V")))
 
   (test-case "safety-value-check trims to at most three decimals, invariant format"
     (check-equal? (format-safety-number 2000) "2000")
@@ -80,9 +82,9 @@ JSON
                           #f
                           "mA"
                           "Set safety.maxCurrentMa to a conservative ceiling."))
-    (check-false (readiness-check-passed check))
-    (check-equal? (readiness-check-summary check)
+    (check-false (bench-readiness-check-passed check))
+    (check-equal? (bench-readiness-check-summary check)
                   "Real-bench readiness requires safety.maxCurrentMa to be configured.")
-    (check-equal? (readiness-check-remediation check)
+    (check-equal? (bench-readiness-check-remediation check)
                   "Set safety.maxCurrentMa to a conservative ceiling.")
-    (check-false (readiness-check-details check))))
+    (check-false (bench-readiness-check-details check))))

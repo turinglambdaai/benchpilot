@@ -91,9 +91,17 @@
 ;; ----------------------------------------------------------------------------
 
 (define (ci-ref h key [default #f])
+  (define key*
+    (if (symbol? key)
+        (symbol->string key)
+        key))
   (or (hash-ref h key #f)
+      (hash-ref h key* #f)
       (for/first ([(k v) (in-hash h)]
-                  #:when (string-ci=? k key))
+                  #:when (string-ci=? (if (symbol? k)
+                                          (symbol->string k)
+                                          k)
+                                      key*))
         v)
       (if (procedure? default)
           (default)

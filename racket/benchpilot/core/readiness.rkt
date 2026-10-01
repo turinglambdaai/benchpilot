@@ -18,7 +18,8 @@
          safety-value-check
          format-safety-number)
 
-(require "profile.rkt")
+(require benchpilot/core/contracts
+         "profile.rkt")
 
 ;; ----------------------------------------------------------------------------
 ;; One deterministic readiness assertion. Severity is "error" or "warning";
@@ -86,7 +87,7 @@
 
 (define (safety-value-check code setting value unit remediation)
   (define present (and (real? value) (not (nan? value))))
-  (readiness-check
+  (bench-readiness-check
    code
    present
    "error"
