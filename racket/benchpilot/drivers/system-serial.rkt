@@ -136,7 +136,7 @@
         (resource-health-result
          #t
          "Serial channel is already open."
-         (hasheq "port" (unbox (system-serial-channel-open-port-box ch))
+         (hash "port" (unbox (system-serial-channel-open-port-box ch))
                  "baud" (~a (unbox (system-serial-channel-open-baud-box ch)))
                  "open" "true")
          #f)]
@@ -144,7 +144,7 @@
         (resource-health-result
          #f
          "No serial port is configured."
-         (hasheq)
+         (hash)
          "Set resources.<id>.settings.port before running preflight.")]
        [else
         (with-handlers
@@ -165,8 +165,8 @@
            (if present
                (format "Configured serial port '~a' is present." default-port)
                (format "Configured serial port '~a' was not found." default-port))
-           (hasheq "port" default-port
-                   "baud" (~a (system-serial-channel-default-baud ch))
+           (hash "port" default-port
+                 "baud" (~a (system-serial-channel-default-baud ch))
                    "open" "false"
                    "discoveredPorts"
                    (string-join (take ordered (min 32 (length ordered))) ","))

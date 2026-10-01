@@ -132,11 +132,13 @@
      (thread
       (lambda ()
         (with-handlers ([exn:fail? void])
-          (define-values (p sin sout serr)
+          ;; subprocess returns (proc stdout stdin stderr).
+          (define-values (p child-stdout child-stdin child-stderr)
             (apply subprocess #f #f #f args))
           (set-box! proc-box p)
-          (copy-port sout output)
-          (copy-port serr output)
+          (close-output-port child-stdin)
+          (copy-port child-stdout output)
+          (copy-port child-stderr output)
           (subprocess-wait p)
           (semaphore-post done-sem)))))
    (lambda ()
@@ -205,7 +207,7 @@
 (define (jlink-do-health settings)
   (define executable (resolve-commander-executable (jlink-settings-executable settings)))
   (define base-details
-    (hasheq "configuredExecutable" (jlink-settings-executable settings)
+    (hash "configuredExecutable" (jlink-settings-executable settings)
             "device" (jlink-settings-device settings)
             "interface" (jlink-settings-interface settings)
             "speedKhz" (~a (jlink-settings-speed-khz settings))
@@ -230,11 +232,12 @@
            (thread
             (lambda ()
               (with-handlers ([exn:fail? void])
-                (define-values (p sin sout serr)
+                (define-values (p child-stdout child-stdin child-stderr)
                   (apply subprocess #f #f #f args))
                 (set-box! proc-box p)
-                (copy-port sout output)
-                (copy-port serr output)
+                (close-output-port child-stdin)
+                (copy-port child-stdout output)
+                (copy-port child-stderr output)
                 (subprocess-wait p)
                 (semaphore-post done-sem))))
            (define probe-timeout (/ (min (jlink-settings-timeout-ms settings) 15000) 1000.0))
@@ -327,7 +330,7 @@
     (filter (lambda (p) (string-ci=? (jlink-probe-connection p) "USB")) probes))
   (define details
     (hash-set (hash-set (hash-set (hash-set (hash-set
-                                            (or base-details (hasheq))
+                                            (or base-details (hash))
                                             "usbProbeCount" (~a (length usb)))
                                            "discoveredSerialNumbers"
                                            (string-join (map jlink-probe-serial-number usb) ","))

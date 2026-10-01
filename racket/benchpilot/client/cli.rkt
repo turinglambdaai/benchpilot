@@ -16,6 +16,7 @@
          benchpilot/core/profile
          racket/file
          racket/path
+         benchpilot/client/updater
          benchpilot/diagnostics/flash/engine
          benchpilot/diagnostics/uds/protocol
          benchpilot/protocol/local-auth)
@@ -760,17 +761,13 @@
       compact)
      (if (> (length (hash-ref (unbox last-printed-box) 'vehicles '())) 0) 0 1)]
     [(update)
-     ;; Self-update lands with the Racket release packaging (Phase 5).
-     (print-result (api-error #f
-                              "not_supported"
-                              "benchpilot update arrives with the Racket release packaging (v0.6.0)."
-                              #f
-                              #f
-                              #f
-                              #f
-                              #f)
-                   compact)
-     4]
+     (define result (if (args-get args 'check) (update-check) (update-run)))
+     (print-result result compact)
+     (if (if (update-check-result? result)
+             (update-check-result-error result)
+             (not (update-result-ok result)))
+         4
+         0)]
     [(shutdown)
      (with-handlers ([exn:benchpilot:network? (lambda (_)
                                                 (print-result (shutdown-result #t "not_running" #f)
@@ -861,6 +858,6 @@ Environment:
 ")))
 
 (module+ main
-  (define args (parse-cli-args (current-command-line-arguments)))
+  (define args (parse-cli-args (vector->list (current-command-line-arguments))))
   (define exit-code (bench-client-run! args))
   (exit exit-code))

@@ -240,8 +240,8 @@
                 (resource-health-result
                  #f
                  "SCPI instrument is not ready."
-                 (hasheq "host" (scpi-power-settings-host settings)
-                         "port" (~a (scpi-power-settings-port settings)))
+                 (hash "host" (scpi-power-settings-host settings)
+                       "port" (~a (scpi-power-settings-port settings)))
                  (exn-message e)))])
           (ensure-connected! driver)
           (define idn
@@ -250,10 +250,10 @@
           (resource-health-result
            #t
            "SCPI instrument is reachable and responded to its identify query."
-           (hasheq "host" (scpi-power-settings-host settings)
-                   "port" (~a (scpi-power-settings-port settings))
-                   "idn" idn
-                   "outputState" (if (unbox (scpi-power-driver-on-box driver)) "on" "off"))
+           (hash "host" (scpi-power-settings-host settings)
+                 "port" (~a (scpi-power-settings-port settings))
+                 "idn" idn
+                 "outputState" (if (unbox (scpi-power-driver-on-box driver)) "on" "off"))
            #f)))))])
 
 ;; ----------------------------------------------------------------------------
