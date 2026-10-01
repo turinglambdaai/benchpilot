@@ -58,7 +58,7 @@
                        [i (in-naturals)])
               (bitwise-and (+ b i 1) #xFF)))))
 
-(define (make-key-derivers [extra (hasheq)])
+(define (make-key-derivers [extra (hash)])
   (hash-union (key-derivers-builtin) extra))
 
 ;; ----------------------------------------------------------------------------
