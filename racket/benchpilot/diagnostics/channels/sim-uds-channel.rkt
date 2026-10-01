@@ -22,6 +22,7 @@
          benchpilot/diagnostics/uds/protocol)
 
 (provide (struct-out uds-ecu-options)
+         default-uds-ecu-options
          (struct-out uds-server-response)
          (struct-out uds-processor)
          (struct-out simulated-uds-ecu)
