@@ -2,6 +2,18 @@
 
 All notable changes to BenchPilot are documented here.
 
+## Unreleased
+
+Racket port kickoff ([ADR 0002](docs/adr/0002-racket-port.md)):
+
+- Decision: port the runtime from .NET/C# to Racket in staged phases under
+  the frozen JSON API / CLI / E2E contract; the C# tree remains the shipping
+  implementation until the port completes.
+- Added `racket/` with the first ported slice (bench profile model, loader,
+  normalization, validation and the pure readiness helpers), covered by 29
+  contract tests; CI runs the ported tree on Windows and Linux.
+- Note: v0.5.1 release notes below describe the C#-based 0.5.x line.
+
 ## 0.5.1 - 2026-09-28
 
 Self-update: the CLI upgrades itself from the release feed.

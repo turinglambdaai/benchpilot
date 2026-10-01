@@ -39,3 +39,25 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: bash scripts/smoke-shutdown.sh
+
+  # Racket port gate (ADR 0002, Phase 0+): the ported tree must stay green
+  # on the same OS matrix as the C# implementation.
+  racket-port:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Racket
+        uses: Bogdanp/setup-racket@v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: '9.3'
+      - name: Install package
+        run: raco pkg install --auto --name benchpilot --link racket
+      - name: Test
+        run: raco test racket/benchpilot
