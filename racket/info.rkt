@@ -16,4 +16,6 @@
 
 (define compile-omit-paths
   '("benchpilot/core/profile-test.rkt"
-    "benchpilot/core/readiness-test.rkt"))
+    "benchpilot/core/readiness-test.rkt"
+    "benchpilot/diagnostics/isotp/codec-test.rkt"
+    "benchpilot/diagnostics/flash/workflow-test.rkt"))
