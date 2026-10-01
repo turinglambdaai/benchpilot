@@ -82,7 +82,7 @@
     (server 'close))
 
   (test-case "device response timeout is a device error and triggers safety off"
-    (define server (make-fake-scpi-server (hasheq "MEAS:VOLT?" 'never)))
+    (define server (make-fake-scpi-server (hash "MEAS:VOLT?" 'no-reply)))
     (define supply (new-supply (server 'port) #:io-timeout-ms 150))
     (define result (ps-power-on supply 12 0 #f))
     (check-false (power-on-result-ok result))
