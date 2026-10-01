@@ -24,6 +24,9 @@
          benchpilot/diagnostics/uds/protocol
          benchpilot/protocol/local-auth
          benchpilot/runtime-host/http
+         benchpilot/drivers/jlink
+         benchpilot/drivers/scpi-power
+         benchpilot/drivers/system-serial
          benchpilot/simulator/simulated-bench)
 
 (provide run-daemon
@@ -65,22 +68,13 @@
   (set-box! (lifecycle-in-flight-box lc) (max 0 (sub1 (unbox (lifecycle-in-flight-box lc))))))
 
 ;; ----------------------------------------------------------------------------
-;; Driver composition
+;; Driver composition (RuntimeHost Program.cs): the same seven factories in
+;; the same order; profiles reference them by driver name.
 ;; ----------------------------------------------------------------------------
 
 (define (parse-hex-setting v)
   (and (string? v)
        (let ([m (regexp-match #rx"^0x([0-9a-fA-F]+)$" v)]) (and m (string->number (second m) 16)))))
-
-(define (can-uds-settings-factory)
-  (driver-factory
-   "can-uds"
-   (lambda (resource-id config)
-     (define settings (bench-resource-settings config))
-     (sim-diagnostics-driver
-      (make-sim-uds-channel
-       #:tester-to-ecu-id (or (parse-hex-setting (hash-ref settings 'requestId #f)) #x7E0)
-       #:ecu-to-tester-id (or (parse-hex-setting (hash-ref settings 'responseId #f)) #x7E8))))))
 
 ;; ----------------------------------------------------------------------------
 ;; JSON protocol mapping
@@ -240,8 +234,11 @@
   (define registry
     (make-driver-registry (list (make-simulator-factory)
                                 (make-sim-diagnostics-factory)
-                                (can-uds-settings-factory)
-                                (make-doip-uds-resource-factory))))
+                                (make-can-iso-tp-resource-factory)
+                                (make-doip-uds-resource-factory)
+                                (make-system-serial-resource-factory)
+                                (make-jlink-resource-factory)
+                                (make-scpi-power-resource-factory))))
   (define rt (make-bench-runtime registry profile))
   (define state (bench-runtime-state rt))
   (define lc (make-lifecycle))

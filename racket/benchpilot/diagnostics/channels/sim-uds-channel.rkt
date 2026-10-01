@@ -18,6 +18,9 @@
          benchpilot/diagnostics/flash/engine
          benchpilot/diagnostics/isotp/codec
          benchpilot/diagnostics/isotp/endpoint
+         benchpilot/diagnostics/transport/can-bus
+         benchpilot/diagnostics/transport/pcan
+         benchpilot/diagnostics/transport/socketcan
          benchpilot/diagnostics/transport/simulated-can-bus
          benchpilot/diagnostics/uds/protocol)
 
@@ -37,6 +40,8 @@
          uds-processor-received-image
          make-simulated-uds-ecu
          make-can-uds-channel
+         (struct-out can-diagnostics-driver)
+         make-can-iso-tp-resource-factory
          make-sim-uds-channel
          make-sim-diagnostics-factory
          sim-channel-request
@@ -496,6 +501,8 @@
                  key-deriver-name
                  max-block-payload
                  ecu-options
+                 isotp-options
+                 transport-label
                  mutex
                  endpoint-box
                  client-box
@@ -507,7 +514,9 @@
                               #:security-level [security-level #f]
                               #:key-deriver-name [key-deriver-name "xor0x5a"]
                               #:max-block-payload [max-block-payload 1024]
-                              #:ecu-options [ecu-options #f])
+                              #:ecu-options [ecu-options #f]
+                              #:isotp-options [isotp-opts #f]
+                              #:transport-label [transport-label #f])
   (can-uds-channel bus
                    tx-id
                    rx-id
@@ -515,24 +524,37 @@
                    key-deriver-name
                    max-block-payload
                    (or ecu-options (default-uds-ecu-options))
+                   (or isotp-opts (isotp-options 0 0 1000 0.002))
+                   (or transport-label "iso-tp/can")
                    (make-semaphore 1)
                    (box #f)
                    (box #f)
                    (box #f)))
 
 (define (channel-transport c)
-  "iso-tp/can (simulated)")
+  (can-uds-channel-transport-label c))
+
+(define (can-uds-channel-health c)
+  (resource-health-result
+   #t
+   "CAN UDS channel is configured."
+   (hasheq "kind" "can-uds"
+           "transport" (channel-transport c)
+           "txId" (format "0x~a" (~r (can-uds-channel-tx-id c) #:base 16))
+           "rxId" (format "0x~a" (~r (can-uds-channel-rx-id c) #:base 16)))
+   #f))
 
 (define (open-can-uds-channel! c)
   (with-mutex*
    (can-uds-channel-mutex c)
    (lambda ()
      (unless (unbox (can-uds-channel-client-box c))
-       (sim-can-port-bus-open! (can-uds-channel-bus-bus c))
+       (can-bus-open! (can-uds-channel-bus-bus c))
        (define endpoint
          (make-isotp-endpoint (can-uds-channel-bus-bus c)
                               (can-uds-channel-tx-id c)
-                              (can-uds-channel-rx-id c)))
+                              (can-uds-channel-rx-id c)
+                              (can-uds-channel-isotp-options c)))
        (define client
          ;; Send request thunk.
          (make-uds-client (lambda (request cancel)
@@ -579,19 +601,6 @@
                     (uds-flash-plan-p2-star-timeout-ms spec)))
   (with-handlers ([exn:fail:flash? (lambda (e) (exn:fail:flash-execution e))])
     (flash-execute (unbox (can-uds-channel-engine-box c)) plan)))
-
-(define (can-uds-channel-health c)
-  (resource-health-result #t
-                          "CAN UDS channel is configured."
-                          (hasheq "kind"
-                                  "can-uds"
-                                  "transport"
-                                  (channel-transport c)
-                                  "txId"
-                                  (format "0x~a" (hex-up (can-uds-channel-tx-id c) 1))
-                                  "rxId"
-                                  (format "0x~a" (hex-up (can-uds-channel-rx-id c) 1)))
-                          #f))
 
 ;; ----------------------------------------------------------------------------
 ;; SimUdsChannel: the simulator's diagnostics channel — a virtual ECU behind
@@ -707,3 +716,111 @@
 (define (parse-hex-setting v)
   (and (string? v)
        (let ([m (regexp-match #rx"^0x([0-9a-fA-F]+)$" v)]) (and m (string->number (second m) 16)))))
+
+;; ----------------------------------------------------------------------------
+;; CanUdsResourceFactory + IDiagChannel adapter for a real CAN bus: driver
+;; "can-iso-tp" binds one ISO-TP channel to SocketCAN (Linux) or PCAN-Basic
+;; (Windows), so targets never switch tooling when the bench switches
+;; transport.
+;; ----------------------------------------------------------------------------
+
+(struct can-diagnostics-driver (channel)
+  #:methods gen:diag-channel
+  [(define (diag-transport d)
+     (channel-transport (can-diagnostics-driver-channel d)))
+   (define (diag-open d cancel)
+     (open-can-uds-channel! (can-diagnostics-driver-channel d))
+     (diag-open-result #t (channel-transport (can-diagnostics-driver-channel d)) #f))
+   (define (diag-request d request-bytes p2-ms p2-star-ms cancel)
+     (can-uds-channel-request (can-diagnostics-driver-channel d) request-bytes p2-ms p2-star-ms
+                              #:cancel cancel))
+   (define (diag-flash d plan cancel)
+     (can-uds-channel-flash (can-diagnostics-driver-channel d) plan))]
+  #:methods gen:resource-health-check
+  [(define (check-health d cancel)
+     (can-uds-channel-health (can-diagnostics-driver-channel d)))])
+
+;; DiagSettings.GetLong port: a JSON number, a "0x..." string or an integer
+;; string; #f when absent or unparseable.
+(define (diag-setting-long settings key)
+  (define v (hash-ref settings key #f))
+  (cond
+    [(real? v) (inexact->exact (truncate v))]
+    [(string? v)
+     (cond
+       [(regexp-match #rx"^0x([0-9a-fA-F]+)$" v)
+        => (lambda (m) (string->number (second m) 16))]
+       [(string->number v)
+        => (lambda (n) (inexact->exact (truncate n)))]
+       [else #f])]
+    [else #f]))
+
+(define (diag-setting-int settings key)
+  (define v (diag-setting-long settings key))
+  (and v (<= -2147483648 v 2147483647) v))
+
+(define (diag-setting-bool settings key)
+  (define v (hash-ref settings key #f))
+  (if (boolean? v) v #f))
+
+(define (make-can-iso-tp-resource-factory)
+  (driver-factory
+   "can-iso-tp"
+   (lambda (resource-id config)
+     (define settings (bench-resource-settings config))
+     (define tx-id
+       (or (diag-setting-long settings 'requestId)
+           (raise-validation
+            (format "Resource '~a' (can-iso-tp) requires 'requestId' (for example 0x7E0)."
+                    resource-id))))
+     (define rx-id
+       (or (diag-setting-long settings 'responseId)
+           (raise-validation
+            (format "Resource '~a' (can-iso-tp) requires 'responseId' (for example 0x7E8)."
+                    resource-id))))
+     (define security-level (diag-setting-int settings 'securityLevel))
+     (define extended
+       (or (diag-setting-bool settings 'extended) (> tx-id #x7FF)))
+     (define st-min-ms (or (diag-setting-int settings 'stMinMs) 0))
+     (define linux?
+       (and (eq? (system-path-convention-type) 'unix)
+            (not (regexp-match? #rx"macosx" (format "~a" (system-library-subpath))))))
+     (define windows? (eq? (system-path-convention-type) 'windows))
+     (define iface (diag-setting-string settings 'interface))
+     (define pcan-channel (diag-setting-int settings 'pcanChannel))
+     (define-values (bus transport-label)
+       (cond
+         [(and iface linux?)
+          (values (make-socketcan-bus iface) "iso-tp/can (socketcan)")]
+         [(and pcan-channel windows?)
+          (values (make-pcan-bus pcan-channel
+                                 (or (diag-setting-int settings 'bitrate) 500000)
+                                 extended)
+                  "iso-tp/can (pcan)")]
+         [iface
+          (raise-validation
+           (format "Resource '~a' (can-iso-tp) needs 'pcanChannel' (Windows/PCAN-Basic) on this platform; 'interface' is a SocketCAN setting."
+                   resource-id))]
+         [pcan-channel
+          (raise-validation
+           (format "Resource '~a' (can-iso-tp) needs 'interface' (Linux/SocketCAN) on this platform; 'pcanChannel' is a Windows/PCAN-Basic setting."
+                   resource-id))]
+         [else
+          (raise-validation
+           (format "Resource '~a' (can-iso-tp) needs 'interface' (Linux/SocketCAN) or 'pcanChannel' (Windows/PCAN-Basic) in its settings."
+                   resource-id))]))
+     (can-diagnostics-driver
+      (make-can-uds-channel bus
+                            tx-id
+                            rx-id
+                            #:security-level security-level
+                            #:key-deriver-name (or (diag-setting-string settings 'keyDeriver)
+                                                   "xor0x5a")
+                            #:max-block-payload (or (diag-setting-int settings 'maxBlockPayload)
+                                                    1024)
+                            #:isotp-options (isotp-options 0 st-min-ms 1000 0.002)
+                            #:transport-label transport-label)))))
+
+(define (diag-setting-string settings key)
+  (define v (hash-ref settings key #f))
+  (and (string? v) v))

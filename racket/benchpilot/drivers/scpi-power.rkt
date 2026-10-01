@@ -224,16 +224,37 @@
      (unbox (scpi-power-driver-on-box (scpi-power-driver-impl-driver d))))]
   #:methods gen:resource-health-check
   [(define (check-health d cancel)
+     ;; Identifies the instrument without touching the output state.
      (define driver (scpi-power-driver-impl-driver d))
      (define settings (scpi-power-driver-settings driver))
-     (resource-health-result
-      #t
-      "SCPI power supply is configured."
-      (hasheq "kind" "scpi-power"
-              "host" (scpi-power-settings-host settings)
-              "port" (~a (scpi-power-settings-port settings))
-              "on" (if (unbox (scpi-power-driver-on-box driver)) "True" "False"))
-      #f))])
+     (define commands (scpi-power-settings-commands settings))
+     (with-io-gate
+      driver
+      (lambda ()
+        (with-handlers
+            ([exn:benchpilot:cancelled? (lambda (e) (raise e))]
+             [exn:fail:scpi?
+              (lambda (e)
+                (close-connection! driver)
+                (set-box! (scpi-power-driver-on-box driver) #f)
+                (resource-health-result
+                 #f
+                 "SCPI instrument is not ready."
+                 (hasheq "host" (scpi-power-settings-host settings)
+                         "port" (~a (scpi-power-settings-port settings)))
+                 (exn-message e)))])
+          (ensure-connected! driver)
+          (define idn
+            (string-trim
+             (query! driver (scpi-power-commands-identify commands))))
+          (resource-health-result
+           #t
+           "SCPI instrument is reachable and responded to its identify query."
+           (hasheq "host" (scpi-power-settings-host settings)
+                   "port" (~a (scpi-power-settings-port settings))
+                   "idn" idn
+                   "outputState" (if (unbox (scpi-power-driver-on-box driver)) "on" "off"))
+           #f)))))])
 
 ;; ----------------------------------------------------------------------------
 ;; IO primitives
@@ -339,24 +360,36 @@
                     (define (get-real key)
                       (define v (hash-ref settings key #f))
                       (and v (real? v) v))
-                    (define host (get-string "host"))
+                    (define host (get-string 'host))
                     (unless (and host (not (string-blank? host)))
                       (raise-validation
                        (format "Resource '~a' requires scpi-power setting 'host'." resource-id)))
-                    (define port (get-int "port"))
-                    (define connect-timeout (get-int "connectTimeoutMs"))
-                    (define io-timeout (get-int "ioTimeoutMs"))
-                    (define current-limit-a (get-real "currentLimitA"))
-                    (define channel (get-string "channel"))
+                    (define port (get-int 'port))
+                    (define connect-timeout (get-int 'connectTimeoutMs))
+                    (define io-timeout (get-int 'ioTimeoutMs))
+                    (define current-limit-a (get-real 'currentLimitA))
+                    (define channel (get-string 'channel))
                     (define commands
                       (scpi-power-commands
-                       (or (get-string "setVoltage") "VOLT {voltage}")
-                       (or (get-string "setCurrentLimit") "CURR {current}")
-                       (or (get-string "outputOn") "OUTP ON")
-                       (or (get-string "outputOff") "OUTP OFF")
-                       (or (get-string "measureVoltage") "MEAS:VOLT?")
-                       (or (get-string "measureCurrent") "MEAS:CURR?")
-                       (or (get-string "identify") "*IDN?")))
+                       (or (get-string 'setVoltage) "VOLT {voltage}")
+                       (or (get-string 'setCurrentLimit) "CURR {current}")
+                       (or (get-string 'outputOn) "OUTP ON")
+                       (or (get-string 'outputOff) "OUTP OFF")
+                       (or (get-string 'measureVoltage) "MEAS:VOLT?")
+                       (or (get-string 'measureCurrent) "MEAS:CURR?")
+                       (or (get-string 'identify) "*IDN?")))
+                    (for ([template (in-list (list (scpi-power-commands-set-voltage commands)
+                                                   (scpi-power-commands-set-current-limit commands)
+                                                   (scpi-power-commands-output-on commands)
+                                                   (scpi-power-commands-output-off commands)
+                                                   (scpi-power-commands-measure-voltage commands)
+                                                   (scpi-power-commands-measure-current commands)
+                                                   (scpi-power-commands-identify commands)))])
+                      (when (or (string-contains? template "\n")
+                                (string-contains? template "\r"))
+                        (raise-validation
+                         (format "Resource '~a' SCPI command templates must be single-line."
+                                 resource-id))))
                     (when (and port (or (<= port 0) (> port 65535)))
                       (raise-validation (format "Resource '~a' has invalid TCP port ~a." resource-id port)))
                     (when (and connect-timeout (or (< connect-timeout 100) (> connect-timeout 120000)))

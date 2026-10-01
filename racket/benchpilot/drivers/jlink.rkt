@@ -13,7 +13,10 @@
          benchpilot/core/contracts
          benchpilot/core/profile)
 
-(provide make-jlink-resource-factory)
+(provide make-jlink-resource-factory
+         (struct-out jlink-probe)
+         jlink-probe-parse
+         jlink-probe-evaluate)
 
 ;; ---- settings parsing ----
 
@@ -26,16 +29,16 @@
   (define settings (bench-resource-settings config))
   (define (str key) (let ([v (hash-ref settings key #f)]) (and (string? v) v)))
   (define (int key) (let ([v (hash-ref settings key #f)]) (and v (exact-integer? v) v)))
-  (define device (str "device"))
+  (define device (str 'device))
   (unless (and device (not (string-blank? device)))
     (jlink-error (format "Resource '~a' requires jlink setting 'device'." resource-id)))
-  (define speed (int "speedKhz"))
+  (define speed (int 'speedKhz))
   (when (and speed (<= speed 0))
     (jlink-error (format "Resource '~a' speedKhz must be greater than zero." resource-id)))
-  (define timeout (int "timeoutMs"))
+  (define timeout (int 'timeoutMs))
   (when (and timeout (or (< timeout 1000) (> timeout 1800000)))
     (jlink-error (format "Resource '~a' timeoutMs must be between 1000 and 1800000." resource-id)))
-  (define raw-addr (hash-ref settings "binAddress" #f))
+  (define raw-addr (hash-ref settings 'binAddress #f))
   (define bin-addr
     (cond
       [(not raw-addr) #f]
@@ -52,12 +55,12 @@
        (jlink-error
         (format "J-Link setting 'binAddress' must be an integer or hexadecimal string such as '0x80000000'."))]))
   (jlink-settings
-   (or (str "executable") (if (eq? (system-type) 'windows) "JLink.exe" "JLinkExe"))
+   (or (str 'executable) (if (eq? (system-type) 'windows) "JLink.exe" "JLinkExe"))
    device
-   (or (str "interface") "SWD")
-   (or speed 4000)
-   (str "serialNumber")
-   (or timeout 120000)
+   (or (str 'interface) "SWD")
+   (or (int 'speedKhz) 4000)
+   (str 'serialNumber)
+   (or (int 'timeoutMs) 120000)
    bin-addr))
 
 (struct jlink-settings (executable device interface speed-khz serial-number timeout-ms bin-address)
@@ -240,15 +243,19 @@
            (if (sync/timeout probe-timeout done-sem)
                (let ([p (unbox proc-box)])
                  (if (and p (zero? (subprocess-status p)))
+                     (jlink-probe-evaluate
+                      (jlink-probe-parse (get-output-string output))
+                      (jlink-settings-serial-number settings)
+                      (hash-set enriched "probeEnumerationChecked" "true"))
                      (resource-health-result
-                      #t "J-Link Commander is installed and probes are enumerable."
-                      (hash-set enriched "probeEnumeration" "ok")
-                      #f)
-                     (resource-health-result
-                      #f "J-Link Commander probe enumeration failed." enriched
+                      #f "J-Link USB probe enumeration failed."
+                      (hash-set enriched "probeEnumerationChecked" "true")
                       (tail-output (get-output-string output)))))
                (resource-health-result
-                #f "J-Link Commander probe enumeration timed out." enriched
+                #f
+                (format "J-Link USB probe enumeration timed out after ~a ms."
+                        (min (jlink-settings-timeout-ms settings) 15000))
+                (hash-set enriched "probeEnumerationChecked" "true")
                 (tail-output (get-output-string output)))))
          (lambda ()
            (with-handlers ([exn:fail? void]) (delete-file probe-file)))))))
@@ -257,6 +264,119 @@
   (define name* (last (string-split (last (string-split path "\\")) "/")))
   (define m (regexp-match #rx"[.][^.]+$" name*))
   (and m (first m)))
+
+;; ---- probe discovery (JLinkProbeDiscovery.cs) ----
+;;
+;; One probe reported by J-Link Commander's non-destructive ShowEmuList
+;; command. The parser tolerates additional fields in future Commander
+;; versions while requiring the fields BenchPilot needs for safe selection.
+
+(struct jlink-probe (connection serial-number product-name nickname) #:transparent)
+
+(define (probe-line-fields line)
+  ;; "J-Link[0]: Connection: USB, Serial number: 59410000, ..." -> alist
+  (define marker (string-index-of line "]:"))
+  (if (not marker)
+      '()
+      (for/list ([segment (in-list (string-split (substring line (+ marker 2)) ","))]
+                 #:unless (string-blank? segment)
+                 #:do [(define colon (string-index-of segment ":"))]
+                 #:when (and colon (> colon 0) (< (add1 colon) (string-length segment))))
+        (cons (string-trim (string-downcase (substring segment 0 colon)))
+              (string-trim (substring segment (add1 colon)))))))
+
+(define (string-index-of haystack needle)
+  (define n (string-length needle))
+  (let loop ([i 0])
+    (cond
+      [(> (+ i n) (string-length haystack)) #f]
+      [(string=? (substring haystack i (+ i n)) needle) i]
+      [else (loop (add1 i))])))
+
+(define (field-value fields key)
+  (cond
+    [(assoc key fields) => cdr]
+    [else #f]))
+
+(define (jlink-probe-parse output)
+  (for/list ([raw-line (in-list (string-split output "\n"))]
+             #:do [(define line (string-trim raw-line))]
+             #:when (and (>= (string-length line) 7)
+                         (string-ci=? (substring line 0 7) "J-Link["))
+             #:do [(define fields (probe-line-fields line))]
+             #:do [(define connection (field-value fields "connection"))
+                   (define serial (field-value fields "serial number"))
+                   (define product (field-value fields "productname"))]
+             #:unless (or (not connection) (string-blank? connection)
+                          (not serial) (string-blank? serial)
+                          (not product) (string-blank? product)))
+    (jlink-probe connection serial product (field-value fields "nickname"))))
+
+(define (probe-selected-details details probe)
+  (define with-product
+    (hash-set (hash-set details
+                        "selectedSerialNumber" (jlink-probe-serial-number probe))
+              "selectedProduct" (jlink-probe-product-name probe)))
+  (define nickname (jlink-probe-nickname probe))
+  (if (and nickname (not (string-blank? nickname)))
+      (hash-set with-product "selectedNickname" nickname)
+      with-product))
+
+(define (jlink-probe-evaluate probes configured-serial [base-details #f])
+  (define usb
+    (filter (lambda (p) (string-ci=? (jlink-probe-connection p) "USB")) probes))
+  (define details
+    (hash-set (hash-set (hash-set (hash-set (hash-set
+                                            (or base-details (hasheq))
+                                            "usbProbeCount" (~a (length usb)))
+                                           "discoveredSerialNumbers"
+                                           (string-join (map jlink-probe-serial-number usb) ","))
+                                  "discoveredProducts"
+                                  (string-join (map jlink-probe-product-name usb) ","))
+                           "probeEnumerationChecked" "true")
+              "targetConnectivityChecked" "false"))
+  (cond
+    [(null? usb)
+     (resource-health-result
+      #f
+      "No USB J-Link probe was enumerated."
+      details
+      "J-Link Commander is installed, but ShowEmuList USB did not report any USB probe.")]
+    [(and configured-serial (not (string-blank? configured-serial)))
+     (define match
+       (findf (lambda (p)
+                (string-ci=? (jlink-probe-serial-number p) configured-serial))
+              usb))
+     (if (not match)
+         (resource-health-result
+          #f
+          (format "Configured J-Link serial number '~a' is not connected."
+                  configured-serial)
+          details
+          (format "Connected USB J-Link serial numbers: ~a."
+                  (string-join (map jlink-probe-serial-number usb) ", ")))
+         (resource-health-result
+          #t
+          (format "Configured J-Link probe ~a (~a) is visible over USB."
+                  (jlink-probe-serial-number match)
+                  (jlink-probe-product-name match))
+          (probe-selected-details details match)
+          #f))]
+    [(> (length usb) 1)
+     (resource-health-result
+      #f
+      (format "~a USB J-Link probes are connected, but no serialNumber is configured."
+              (length usb))
+      details
+      "Configure resources.<id>.settings.serialNumber so automated flashing selects one probe deterministically.")]
+    [else
+     (resource-health-result
+      #t
+      (format "One J-Link probe ~a (~a) is visible over USB."
+              (jlink-probe-serial-number (car usb))
+              (jlink-probe-product-name (car usb)))
+      (probe-selected-details details (car usb))
+      #f)]))
 
 ;; ---- driver struct ----
 
