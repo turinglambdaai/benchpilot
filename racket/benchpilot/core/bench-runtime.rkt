@@ -81,6 +81,9 @@
          target-serial-send
          target-uds-request
          target-uds-flash
+         ;; registry accessors
+         registry-instance
+         registry-registered?
          ;; state passthrough (host convenience)
          runtime-active-operations
          runtime-active-observations
@@ -280,10 +283,11 @@
   (when (< settle-ms 0)
     (raise-validation "Power settleMs cannot be negative."))
   (define safety (bench-profile-safety (bench-runtime-profile rt)))
-  (when (and (bench-safety-max-voltage safety) (> voltage (bench-safety-max-voltage safety)))
+  (define max-voltage (bench-safety-max-voltage safety))
+  (when (and max-voltage (> voltage max-voltage))
     (raise-validation (format "Requested voltage ~a V exceeds bench safety limit ~a V."
                               (format-number-0-3 voltage)
-                              (format-number-0-3 (bench-safety-max-voltage safety)))))
+                              (format-number-0-3 max-voltage))))
   (define b (bound-capability rt t "power" power-supply? "IPowerSupply"))
   (define result
     (run-mutation
@@ -293,9 +297,10 @@
      (list (binding-resource-id b))
      (lambda (cancel)
        (define value (ps-power-on (binding-capability b) voltage settle-ms cancel))
+       (define max-current (bench-safety-max-current-ma safety))
        (if (and (power-on-result-ok value)
-                (bench-safety-max-current-ma safety)
-                (> (power-on-result-current-ma value) (bench-safety-max-current-ma safety)))
+                max-current
+                (> (power-on-result-current-ma value) max-current))
            (let ([off (ps-power-off (binding-capability b) #f)])
              (struct-copy power-on-result
                           value
@@ -304,30 +309,31 @@
                           [error
                            (format "Measured current ~a mA exceeds bench safety limit ~a mA. ~a"
                                    (format-number-0-3 (power-on-result-current-ma value))
-                                   (format-number-0-3 (bench-safety-max-current-ma safety))
+                                   (format-number-0-3 max-current)
                                    (if (power-off-result-ok off)
                                        "Power output was switched off."
                                        "Power-off also reported an error."))]))
            value))
      #:deadline-ms deadline-ms
      #:caller-cancel caller))
-  (context-store-record!
-   (runtime-state-context-store (bench-runtime-state rt))
-   (target-ref-id t)
-   (bench-evidence-item "context.power-on"
-                        (if (power-on-result-ok result)
-                            "Recent power-on result."
-                            "Recent power-on attempt returned a device/safety error.")
-                        (power-on-result-error result)
-                        (hasheq "ok"
-                                (bool-str (power-on-result-ok result))
-                                "voltageV"
-                                (format-number-0-3 (power-on-result-voltage result))
-                                "currentMa"
-                                (format-number-0-3 (power-on-result-current-ma result))
-                                "settled"
-                                (bool-str (power-on-result-settled result))))
-   result))
+  (define item
+    (bench-evidence-item "context.power-on"
+                         (if (power-on-result-ok result)
+                             "Recent power-on result."
+                             "Recent power-on attempt returned a device/safety error.")
+                         (power-on-result-error result)
+                         (hasheq "ok"
+                                 (bool-str (power-on-result-ok result))
+                                 "voltageV"
+                                 (format-number-0-3 (power-on-result-voltage result))
+                                 "currentMa"
+                                 (format-number-0-3 (power-on-result-current-ma result))
+                                 "settled"
+                                 (bool-str (power-on-result-settled result)))))
+  (context-store-record! (runtime-state-context-store (bench-runtime-state rt))
+                         (target-ref-id t)
+                         item)
+  result)
 
 (define (target-power-off rt t #:deadline-ms [deadline-ms #f] #:caller-cancel [caller #f])
   (define b (bound-capability rt t "power" power-supply? "IPowerSupply"))
@@ -944,8 +950,8 @@
                 (instance-type-name live))))))
 
   (define mode
-    (determine-mode (for/list ([pair (in-hash bound-resources)])
-                      (bench-resource-driver (cdr pair)))))
+    (determine-mode (for/list ([pair (in-hash-pairs bound-resources)])
+                      (bench-resource-driver (cdr (cdr pair))))))
   (define hardware-only (string=? mode "hardware"))
   (add-check
    (bench-readiness-check

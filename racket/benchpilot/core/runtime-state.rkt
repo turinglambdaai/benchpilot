@@ -17,6 +17,7 @@
 (provide (struct-out exec-cancel)
          (struct-out runtime-state)
          (struct-out active-exec)
+         (struct-out mutation-gate-request)
          (struct-out drain-result)
          check-disposed
          new-id

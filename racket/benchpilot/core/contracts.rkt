@@ -207,7 +207,6 @@
             (resources record-list)
             (error nullable-string))
 (api-record bench-readiness-check
-            (ok boolean)
             (code string)
             (passed boolean)
             (severity string)

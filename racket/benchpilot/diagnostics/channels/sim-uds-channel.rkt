@@ -27,6 +27,8 @@
          (struct-out uds-processor)
          (struct-out simulated-uds-ecu)
          (struct-out sim-uds-channel)
+         (struct-out sim-diagnostics-driver)
+         can-uds-channel-request
          make-uds-processor
          uds-processor-process!
          uds-processor-erased?

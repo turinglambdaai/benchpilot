@@ -108,7 +108,7 @@
                      '()
                      (let ([visible-through (- (now-ms*)
                                                (unbox (simulated-bench-boot-at-box bench)))])
-                       (for/list ([entry (in-list (unbox (simulated-bench-console-box)))]
+                       (for/list ([entry (in-list (unbox (simulated-bench-console-box bench)))]
                                   #:when (<= (car entry) visible-through))
                          (cdr entry)))))))
 
