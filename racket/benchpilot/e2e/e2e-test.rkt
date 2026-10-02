@@ -130,10 +130,10 @@
     (check-equal? uds-status 200 uds-body)
     (define uds (read-json (open-input-string uds-body)))
     (check-true (hash-ref uds 'positive))
-    (define-values (doip-status _doip-body)
+    (define-values (doip-status doip-body)
       (raw-api-call shared-env "POST" "/api/v1/doip/discover"
                     (hasheq 'windowMs 200)))
-    (check-equal? doip-status 200))
+    (check-equal? doip-status 200 doip-body))
 
   (test-case "history records completed mutations"
     (run-cli-json shared-env "power" "on" "--voltage" "12" "--settle-ms" "100" "--json")

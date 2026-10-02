@@ -52,8 +52,10 @@
     (check-true (serial-channel? instance))
     (check-false (sc-open? instance))
     (define health (check-health instance #f))
-    (check-false (resource-health-result-ok health))
-    (check-equal? (hash-ref (resource-health-result-details health) "port") "COM7"))
+    ;; ok depends on whether THIS host happens to expose the port; the
+    ;; contract here is that the factory never opened anything.
+    (check-equal? (hash-ref (resource-health-result-details health) "port")
+                  "COM7"))
 
   (test-case "system serial factory rejects wrong capability"
     (define message

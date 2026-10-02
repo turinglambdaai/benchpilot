@@ -273,26 +273,32 @@
 ;; UDP vehicle discovery: loopback unicast first (simulators bind loopback
 ;; only), then LAN broadcast; every valid answer inside the window returns.
 (define (doip-client-discover [window-ms 500] #:cancel [cancel #f])
-  (define sock (udp-open-socket))
-  (udp-bind! sock #f 0)
+  ;; Every leg is best-effort: a host without a broadcast route, no free
+  ;; port or a blocked socket still yields an empty discovery result
+  ;; instead of a hard error — hardened beyond the C# original, which let
+  ;; the SocketException surface.
+  (define sock
+    (with-handlers ([exn:fail? (lambda (_) #f)])
+      (define s (udp-open-socket))
+      (udp-bind! s #f 0)
+      s))
   (define request (list->bytes (doip-frame->bytes (make-doip-frame-vehicle-identification-request))))
-  (with-handlers ([exn:fail:network? (lambda (_) (void))])
-    (udp-send-to sock "127.0.0.1" doip-port request))
-  ;; A host without a broadcast route (sandboxed CI, offline laptops) still
-  ;; gets an empty discovery result rather than a hard error — hardened
-  ;; beyond the C# original, which let the SocketException surface.
-  (with-handlers ([exn:fail:network? (lambda (_) (void))])
-    (udp-send-to sock "255.255.255.255" doip-port request))
+  (when sock
+    (with-handlers ([exn:fail? (lambda (_) (void))])
+      (udp-send-to sock "127.0.0.1" doip-port request))
+    (with-handlers ([exn:fail? (lambda (_) (void))])
+      (udp-send-to sock "255.255.255.255" doip-port request)))
 
   (define identities '())
   (define deadline (+ (now-millis) window-ms))
   (define receive-buffer (make-bytes 2048))
   (let loop ()
-    (when (< (now-millis) deadline)
+    (when (and sock (< (now-millis) deadline))
       ;; udp-receive!* yields (len hostname port) here; the shared buffer
       ;; carries the datagram.
       (define-values (len hostname port*)
-        (udp-receive!* sock receive-buffer))
+        (with-handlers ([exn:fail? (lambda (_) (values 0 #f 0))])
+          (udp-receive!* sock receive-buffer)))
       (cond
         [(and len (> len 0))
          (define decoded
