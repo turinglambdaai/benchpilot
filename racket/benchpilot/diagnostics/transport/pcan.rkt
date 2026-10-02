@@ -64,8 +64,10 @@
 
 (define (with-bus-mutex bus proc)
   (semaphore-wait/enable-break (pcan-bus-mutex bus))
-  (begin0 (proc)
-    (semaphore-post (pcan-bus-mutex bus))))
+  (dynamic-wind
+ (lambda () (void))
+ proc
+ (lambda () (semaphore-post (pcan-bus-mutex bus)))))
 
 ;; ----------------------------------------------------------------------------
 ;; PCANBasic.dll bindings (lazy, cached)

@@ -16,8 +16,16 @@
 (define (run-tool lines->value . argv)
   (with-handlers ([exn:fail? (lambda (_) #f)])
     (define output (open-output-string))
-    (define p (apply subprocess output #f 'stdout argv))
+    ;; subprocess yields (proc stdout stdin stderr).
+    (define-values (p child-stdout child-stdin child-stderr)
+      (apply subprocess #f #f #f argv))
+    (close-output-port child-stdin)
+    (define collector
+      (thread (lambda ()
+                (copy-port child-stdout output)
+                (close-input-port child-stdout))))
     (subprocess-wait p)
+    (sync collector)
     (if (zero? (subprocess-status p))
         (lines->value (get-output-string output))
         #f)))

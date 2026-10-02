@@ -77,8 +77,10 @@
 
 (define (with-store-mutex store proc)
   (semaphore-wait/enable-break (persist-store-mutex store))
-  (begin0 (proc)
-    (semaphore-post (persist-store-mutex store))))
+  (dynamic-wind
+ (lambda () (void))
+ proc
+ (lambda () (semaphore-post (persist-store-mutex store)))))
 
 (define (append-line! store file-name jsexpr)
   ;; Serialize first: a serialization failure then leaves no torn line

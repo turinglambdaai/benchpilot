@@ -111,8 +111,10 @@
 
 (define (with-mutex* sema proc)
   (semaphore-wait/enable-break sema)
-  (begin0 (proc)
-    (semaphore-post sema)))
+  (dynamic-wind
+       (lambda () (void))
+       proc
+       (lambda () (semaphore-post sema))))
 
 (define hex-up (lambda (n width) (string-upcase (~r n #:base 16 #:min-width width #:pad-string "0"))))
 

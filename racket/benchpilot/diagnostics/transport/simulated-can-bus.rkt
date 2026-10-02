@@ -38,8 +38,10 @@
 
 (define (call-with-bus-mutex bus proc)
   (semaphore-wait/enable-break (simulated-can-bus-mutex bus))
-  (begin0 (proc)
-    (semaphore-post (simulated-can-bus-mutex bus))))
+  (dynamic-wind
+ (lambda () (void))
+ proc
+ (lambda () (semaphore-post (simulated-can-bus-mutex bus)))))
 
 (define (simulated-can-bus-frames-exchanged bus)
   (call-with-bus-mutex bus (lambda () (length (unbox (simulated-can-bus-log-box bus))))))

@@ -188,13 +188,17 @@
 
 (define (with-port-gate ch proc)
   (semaphore-wait/enable-break (system-serial-channel-port-gate ch))
-  (begin0 (proc)
-    (semaphore-post (system-serial-channel-port-gate ch))))
+  (dynamic-wind
+ (lambda () (void))
+ proc
+ (lambda () (semaphore-post (system-serial-channel-port-gate ch)))))
 
 (define (with-line-gate ch proc)
   (semaphore-wait/enable-break (system-serial-channel-line-gate ch))
-  (begin0 (proc)
-    (semaphore-post (system-serial-channel-line-gate ch))))
+  (dynamic-wind
+ (lambda () (void))
+ proc
+ (lambda () (semaphore-post (system-serial-channel-line-gate ch)))))
 
 (define (channel-open? ch)
   (and (unbox (system-serial-channel-handle-box ch)) #t))

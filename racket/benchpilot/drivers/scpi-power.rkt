@@ -262,7 +262,7 @@
 
 (define (with-io-gate driver proc)
   (semaphore-wait/enable-break (scpi-power-driver-mutex driver))
-  (begin0 (proc) (semaphore-post (scpi-power-driver-mutex driver))))
+  (dynamic-wind void proc (lambda () (semaphore-post (scpi-power-driver-mutex driver)))))
 
 (define (ensure-connected! driver)
   (unless (unbox (scpi-power-driver-in-box driver))
