@@ -9,8 +9,8 @@ VER="$1"; RID="$2"; DEST="$3"
 cd "$(dirname "$0")/.."
 
 # The launchers require the benchpilot collection; install the link
-# (no-op when the caller already did).
-raco pkg install --auto --name benchpilot --link racket
+# (no-op — and non-fatal — when the caller already did).
+raco pkg install --auto --name benchpilot --link racket >/dev/null 2>&1 || true
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -27,7 +27,10 @@ case "$RID" in
     raco exe -o "$WORK/benchpilot" packaging/launchers/benchpilot.rkt
     raco exe -o "$WORK/benchpilotd" packaging/launchers/benchpilotd.rkt
     raco exe -o "$WORK/benchpilot-mcp" packaging/launchers/benchpilot-mcp.rkt
-    raco distribution "$WORK/dist" \
+    # raco exe writes read-only launchers; `raco distribute` rewrites the
+    # copies it assembles and needs them writable.
+    chmod u+w "$WORK"/benchpilot "$WORK"/benchpilotd "$WORK"/benchpilot-mcp
+    raco distribute "$WORK/dist" \
       "$WORK/benchpilot" "$WORK/benchpilotd" "$WORK/benchpilot-mcp"
     mkdir -p "$DEST"
     cp -R "$WORK/dist/." "$DEST/"
