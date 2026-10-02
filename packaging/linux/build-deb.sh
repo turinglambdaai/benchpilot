@@ -56,8 +56,10 @@ EOF
 deb="$root/$out_dir/benchpilot-${version}-linux-x64.deb"
 dpkg-deb --build --root-owner-group "$pkg" "$deb"
 dpkg-deb --info "$deb" >/dev/null
-dpkg-deb --contents "$deb" | grep -q './opt/benchpilot/bin/benchpilot$'
-dpkg-deb --contents "$deb" | grep -q './opt/benchpilot/lib/'
+# Grep -q on a pipe would SIGPIPE the tar inside dpkg-deb; materialize.
+dpkg-deb --contents "$deb" > "$work/contents.txt"
+grep -q './opt/benchpilot/bin/benchpilot$' "$work/contents.txt"
+grep -q './opt/benchpilot/lib/' "$work/contents.txt"
 
 hash="$(sha256sum "$deb" | awk '{print $1}')"
 printf '%s  %s' "$hash" "$(basename "$deb")" > "$deb.sha256"

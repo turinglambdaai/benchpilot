@@ -104,7 +104,8 @@ jobs:
           mv "dist/$RID" "$NAME"
           mkdir -p artifacts
           if [[ "$RID" == win-* ]]; then
-            zip -q -r "artifacts/$NAME.zip" "$NAME"
+            # windows runners ship bsdtar; -a picks zip from the extension
+            tar -a -cf "artifacts/$NAME.zip" "$NAME"
           else
             tar -czf "artifacts/$NAME.tar.gz" "$NAME"
           fi
