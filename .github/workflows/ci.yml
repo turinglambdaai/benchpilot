@@ -13,36 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v7
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '10.0.x'
-      - name: Restore
-        run: dotnet restore
-      - name: Build
-        run: dotnet build --no-restore -c Release
-      - name: Test
-        run: dotnet test --no-build -c Release --logger "console;verbosity=normal"
-      - name: Resident runtime smoke
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: bash scripts/smoke-runtime.sh
-      - name: Graceful shutdown smoke
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: bash scripts/smoke-shutdown.sh
-
-  # Racket port gate (ADR 0002, Phase 0+): the ported tree must stay green
-  # on the same OS matrix as the C# implementation.
-  racket-port:
+  test:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -59,5 +30,13 @@ jobs:
           version: '9.3'
       - name: Install package
         run: raco pkg install --auto --name benchpilot --link racket
-      - name: Test
+      - name: Test (unit + driver + MCP + E2E)
         run: raco test racket/benchpilot
+      - name: Resident runtime smoke
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: bash scripts/smoke-runtime.sh
+      - name: Graceful shutdown smoke
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: bash scripts/smoke-shutdown.sh

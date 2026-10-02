@@ -323,15 +323,35 @@
 (define (current-executable-path)
   (path->string (find-system-path 'exec-file)))
 
+;; install.sh/deb/brew wrap the real launcher in a tiny shell script so the
+;; packaged lib tree keeps resolving; the updater follows that wrapper back.
+(define (resolve-launcher-path path)
+  (with-handlers ([exn:fail? (lambda (_) path)])
+    (define lines (file->lines path))
+    (if (and (>= (length lines) 3)
+             (string-contains? (second lines) "benchpilot wrapper")
+             (string-contains? (third lines) "exec "))
+        (let ([m (regexp-match #rx"exec \"([^\"]+)\"" (third lines))])
+          (if m (second m) path))
+        path)))
+
 (define (install-files! extract-dir)
+  (define launcher-path
+    (if (eq? (system-path-convention-type) 'windows)
+        (current-executable-path)
+        (resolve-launcher-path (current-executable-path))))
   (define install-dir
     (let-values ([(dir _name _dir?) (split-path (path->complete-path
-                                                 (current-executable-path)))])
+                                                 launcher-path))])
       (path->string dir)))
-  (define suffix (if (eq? (system-path-convention-type) 'windows) ".exe" ""))
+  (define windows? (eq? (system-path-convention-type) 'windows))
+  (define suffix (if windows? ".exe" ""))
+  ;; Unix archives carry the launchers under bin/ next to lib/.
+  (define source-dir
+    (if windows? extract-dir (build-path extract-dir "bin")))
   (define swapped 0)
   (for ([base-name (in-list packaged-files)])
-    (define source (build-path extract-dir (string-append base-name suffix)))
+    (define source (build-path source-dir (string-append base-name suffix)))
     (when (file-exists? source)
       (define target (build-path install-dir (string-append base-name suffix)))
       (define backup (string-append (path->string target) ".old"))

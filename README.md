@@ -100,7 +100,7 @@ No physical hardware is required for the simulator path.
 
 ### Requirements
 
-- .NET SDK 10.0+
+- nothing to *run* a release; Racket 9.3+ (CS) to build from source
 - Git
 - an MCP-capable client for Agent use (optional)
 - for physical benches: the vendor/OS tools referenced by the selected profile, such as SEGGER J-Link Commander
@@ -110,8 +110,8 @@ No physical hardware is required for the simulator path.
 ```bash
 git clone https://github.com/turinglambdaai/benchpilot.git
 cd benchpilot
-dotnet build
-dotnet test
+raco pkg install --auto --name benchpilot --link racket
+raco test racket/benchpilot
 ```
 
 ## Quick start
@@ -149,7 +149,8 @@ From source instead:
 ```bash
 git clone https://github.com/turinglambdaai/benchpilot.git
 cd benchpilot
-dotnet build -c Release
+raco pkg install --auto --name benchpilot --link racket
+racket packaging/launchers/benchpilot.rkt status --json
 ```
 
 ### 0.5. Stay updated
@@ -198,15 +199,15 @@ benchpilot power off --json
 ```
 
 When installed from source, prefix the commands with
-`dotnet run --project src/Benchpilot.Cli --` instead.
+`racket packaging/launchers/benchpilot.rkt` instead.
 
 Long mutations and serial observations can also carry a Runtime execution budget:
 
 ```bash
-dotnet run --project src/Benchpilot.Cli -- \
+racket packaging/launchers/benchpilot.rkt -- \
   flash write build/app.elf --deadline-ms 30000 --json
 
-dotnet run --project src/Benchpilot.Cli -- \
+racket packaging/launchers/benchpilot.rkt -- \
   serial wait Ready --timeout-ms 5000 --deadline-ms 7000 --json
 ```
 
@@ -289,6 +290,16 @@ Example Agent task:
 After the target is ready, an Agent can execute a constrained bench loop such as:
 
 > Power on the ECU at 12 V, flash the selected firmware, wait for the console to print `Ready`, verify idle current is below the configured threshold, then power it off.
+
+### 6. Attach a bench report
+
+One static, self-contained HTML artifact covering the bench state, the
+readiness verdict, operation/observation history and the newest evidence —
+attach it to a bench session log or an ECU release note:
+
+```bash
+benchpilot report --out bench-report.html
+```
 
 ## CLI exit codes
 
@@ -458,14 +469,13 @@ See [ROADMAP.md](ROADMAP.md).
 
 ## Implementation language
 
-The shipped Runtime is implemented in .NET/C#, and the project is porting it
-to **Racket** ([ADR 0002](docs/adr/0002-racket-port.md), which supersedes
-[ADR 0001](docs/adr/0001-runtime-language.md)). The port proceeds in staged
-phases under a frozen API contract: until its final phase completes, the C#
-tree remains the shipping implementation and the Racket sources under
-`racket/` are the port under construction. GUI technology stays decoupled
-from the Runtime; any future Studio GUI would speak the same versioned local
-API rather than owning devices.
+The Runtime is implemented in **Racket** (Racket CS) since v0.6.0
+([ADR 0002](docs/adr/0002-racket-port.md), which supersedes
+[ADR 0001](docs/adr/0001-runtime-language.md)). The C#/.NET tree of the
+0.5.x line was retired in v0.6.0 after the port reached full contract
+parity: same frozen JSON API, same CLI exit codes, same E2E suite. GUI
+technology stays decoupled from the Runtime; any future Studio GUI would
+speak the same versioned local API rather than owning devices.
 
 ## Long-term flashing direction
 
