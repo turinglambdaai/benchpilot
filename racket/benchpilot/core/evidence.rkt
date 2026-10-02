@@ -89,8 +89,10 @@
   (with-handlers ([exn:fail? (lambda (e)
                                (semaphore-post sema)
                                (raise e))])
-    (begin0 (proc)
-      (semaphore-post sema))))
+    (dynamic-wind
+ (lambda () (void))
+ proc
+ (lambda () (semaphore-post sema)))))
 
 ;; Items of one bundle: bounded like the C# BoundItem.
 (define (evidence-bound-items items)

@@ -44,8 +44,10 @@
 
 (define (with-mutex* sema proc)
   (semaphore-wait/enable-break sema)
-  (begin0 (proc)
-    (semaphore-post sema)))
+  (dynamic-wind
+ (lambda () (void))
+ proc
+ (lambda () (semaphore-post sema))))
 
 (define (make-simulated-bench)
   (simulated-bench (make-semaphore 1) (box #f) (box 0) (box 0) (box "factory-bootloader") (box '())))

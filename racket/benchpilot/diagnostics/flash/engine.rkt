@@ -11,6 +11,7 @@
 
 (require benchpilot/core/contracts
          benchpilot/core/bench-runtime
+         benchpilot/diagnostics/security-provider
          benchpilot/diagnostics/uds/protocol)
 
 (provide (struct-out exn:fail:flash)
@@ -142,7 +143,10 @@
     ;; 2. Security access (optional).
     (when (uds-flash-plan-security-level plan)
       (define deriver-name (uds-flash-plan-key-deriver plan))
-      (define deriver (and deriver-name (hash-ref (flash-engine-key-derivers engine) deriver-name #f)))
+      (define deriver
+        (and deriver-name
+             (or (hash-ref (flash-engine-key-derivers engine) deriver-name #f)
+                 (resolve-key-deriver deriver-name))))
       (unless deriver
         (fail! (format "Plan references key deriver '~a' but no such deriver is registered."
                        deriver-name)))

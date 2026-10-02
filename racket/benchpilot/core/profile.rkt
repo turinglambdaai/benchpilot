@@ -54,7 +54,8 @@
 (struct bench-resource (driver capabilities settings) #:transparent)
 (struct bench-target (name mcu bindings) #:transparent)
 (struct bench-safety
-        (max-voltage max-current-ma require-explicit-target require-destructive-confirmation)
+        (max-voltage max-current-ma require-explicit-target require-destructive-confirmation
+                     leases-required)
   #:transparent)
 
 ;; Legacy P0 records with their C# defaults (Board, PowerConfig, ...).
@@ -266,7 +267,8 @@
   (bench-safety (get-real doc "maxVoltage")
                 (get-real doc "maxCurrentMa")
                 (get-bool doc "requireExplicitTarget")
-                (get-bool doc "requireDestructiveConfirmation")))
+                (get-bool doc "requireDestructiveConfirmation")
+                (get-bool doc "leasesRequired")))
 
 (define (parse-board doc)
   (and doc (bench-board (get-string doc "name" "Demo Board") (get-string doc "mcu" "simulated-mcu"))))
@@ -501,7 +503,7 @@
           "Demo ECU"
           "simulated-mcu"
           (hash "power" "sim.demo" "serial" "sim.demo" "flash" "sim.demo" "diagnostics" "sim.uds")))
-   (bench-safety 14.5 2000 #f #f)
+   (bench-safety 14.5 2000 #f #f #f)
    #f
    #f
    #f

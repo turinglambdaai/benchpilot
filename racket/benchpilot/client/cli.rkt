@@ -5,6 +5,7 @@
 ;; stable exit-code contract, one-retry autostart and the doctor check.
 
 (require json
+         net/base64
          racket/format
          racket/list
          racket/port
@@ -556,6 +557,11 @@
   (define (require-positional index label)
     (or (args-positional args index) (raise-validation (format "Missing required ~a." label))))
 
+  (define (hex-string->bytes hex)
+    (list->bytes (hex-parse hex)))
+  (define (bytes->hex-string bs)
+    (bytes->hex (bytes->list bs)))
+
   (define (maybe-did text)
     (define n (parse-hex-or-dec text))
     (unless (and n (>= n 0) (<= n #xFFFF))
@@ -791,6 +797,48 @@
                                     (args-get args 'confirm-target)))
                       compact)
         0]
+       [(dtc)
+        (define action
+          (string->symbol (string-downcase
+                           (or (args-positional args 2) ""))))
+        (case action
+          [(read)
+           (define mask (args-hex-opt args 'mask))
+           (define request (uds-read-dtcs (or mask #xFF)))
+           (define result
+             (call "POST" "/uds/request"
+                   (target-query)
+                   (hasheq 'requestHex (bytes->hex-string (list->bytes request)))))
+           (unless (hash-ref result 'positive #f)
+             (print-result result compact)
+             1)
+           ;; responseHex already excludes the SID.
+           (define payload (hex-string->bytes (hash-ref result 'responseHex "")))
+           (define parsed (parse-dtc-response (bytes->list payload)))
+           (define out
+             (if (eq? parsed 'unsupported)
+                 (hasheq 'ok #t 'positive #f 'error "ECU does not support DTC read (NRC or odd response).")
+                 (hasheq 'ok #t
+                         'positive #t
+                         'availableMask (format "0x~a" (~r (hash-ref parsed 'availableMask) #:base 16 #:min-width 2 #:pad-string "0"))
+                         'dtcs (hash-ref parsed 'dtcs '()))))
+           (print-result out compact)
+           0]
+          [(clear)
+           (define group (args-hex-opt args 'group))
+           (define request (uds-clear-dtcs (or group #xFFFFFF)))
+           (define result
+             (call "POST" "/uds/request"
+                   (target-query)
+                   (hasheq 'requestHex (bytes->hex-string (list->bytes request)))))
+           (if (not (hash-ref result 'positive #f))
+               (begin (print-result result compact) 1)
+               (let ()
+                 ;; ClearDiagnosticInformation answers with the bare 0x54
+                 ;; positive SID; responseHex is empty by design.
+                 (print-result (hasheq 'ok #t 'positive #t 'cleared #t) compact)
+                 0))]
+          [else (raise-validation (format "Unknown command: uds dtc ~a" action))])]
        [else (raise-validation (format "Unknown command: uds ~a" subcommand))])]
     [(doip)
      (unless (eq? subcommand (quote discover))
@@ -799,6 +847,114 @@
       (call "POST" "/doip/discover" (hasheq) (hasheq 'windowMs (args-int-opt args 'window-ms)))
       compact)
      (if (> (length (hash-ref (unbox last-printed-box) 'vehicles '())) 0) 0 1)]
+    [(can)
+     (case subcommand
+       [(send)
+        (print-result
+         (call "POST" "/can/send" (target-query)
+               (hasheq 'resource (args-get args 'resource)
+                       'frameId (or (args-hex-opt args 'id)
+                                    (raise-validation "Missing --id (frame id, e.g. 0x123)."))
+                       'extended (if (args-flag args 'extended) #t 'null)
+                       'dataHex (require-positional 2 "data hex")))
+         compact)
+        0]
+       [(capture)
+        (case (string->symbol (string-downcase (or (args-positional args 2) "")))
+          [(start)
+           (print-result
+            (call "POST" "/can/capture/start"
+                  (target-query)
+                  (hasheq 'resource (args-get args 'resource)
+                          'capacity (args-int-opt args 'capacity)))
+            compact)
+           0]
+          [(stop)
+           (print-result
+            (call "POST" "/can/capture/stop" (hasheq)
+                  (hasheq 'captureId (require-positional 3 "capture id")))
+            compact)
+           0]
+          [else (raise-validation (format "Unknown command: can capture ~a" (args-positional args 2)))])]
+       [(frames)
+        (print-result
+         (call "GET" "/can/frames"
+               (hasheq 'captureId (require-positional 2 "capture id")
+                       'limit (or (args-int-opt args 'limit) 256)))
+         compact)
+        0]
+       [(decode)
+        (print-result
+         (call "POST" "/can/decode" (hasheq)
+               (hasheq 'captureId (require-positional 2 "capture id")
+                       'dbcPath (args-get args 'dbc)
+                       'frameId (or (args-hex-opt args 'id)
+                                    (raise-validation "Missing --id (frame id)."))
+                       'limit (or (args-int-opt args 'limit) 64)))
+         compact)
+        0]
+       [else (raise-validation (format "Unknown command: can ~a" subcommand))])]
+    [(lease)
+     (case subcommand
+       [(acquire)
+        (print-result
+         (call "POST" "/lease/acquire" (hasheq)
+               (hasheq 'target (require-positional 2 "target id")
+                       'ttlSeconds (or (args-int-opt args 'ttl) 300)))
+         compact)
+        0]
+       [(renew)
+        (print-result
+         (call "POST" "/lease/renew" (hasheq)
+               (hasheq 'leaseId (require-positional 2 "lease id")
+                       'ttlSeconds (or (args-int-opt args 'ttl) 300)))
+         compact)
+        0]
+       [(release)
+        (print-result
+         (call "POST" "/lease/release" (hasheq)
+               (hasheq 'leaseId (require-positional 2 "lease id")))
+         compact)
+        0]
+       [(list)
+        (print-result (call "GET" "/lease/list" (hasheq)) compact)
+        0]
+       [else (raise-validation (format "Unknown command: lease ~a" subcommand))])]
+    [(store)
+     (case subcommand
+       [(evidence)
+        (print-result (call "GET" "/store/operations"
+                            (hasheq 'limit (or (args-int-opt args 'limit) 50)))
+                      compact)
+        0]
+       [(observations)
+        (print-result (call "GET" "/store/observations"
+                            (hasheq 'limit (or (args-int-opt args 'limit) 50)))
+                      compact)
+        0]
+       [(artifacts)
+        (print-result (call "GET" "/store/artifacts" (hasheq)) compact)
+        0]
+       [(artifact)
+        (define id (require-positional 2 "artifact id"))
+        (define result (call "GET" "/store/artifact" (hasheq 'artifactId id)))
+        (define content (base64-decode (string->bytes/latin-1
+                                        (hash-ref result 'contentBase64))))
+        (define out (args-get args 'out))
+        (if out
+            (begin
+              (display-to-file content out #:mode 'binary #:exists 'replace)
+              (print-result (hasheq 'ok #t
+                                    'artifactId (hash-ref result 'artifactId)
+                                    'bytes (hash-ref result 'bytes)
+                                    'sha256 (hash-ref result 'sha256)
+                                    'output out)
+                            compact))
+            (begin
+              (write-bytes content)
+              (newline)))
+        0]
+       [else (raise-validation (format "Unknown command: store ~a" subcommand))])]
     [(report)
      ;; --format html: one static evidence report for the bench session.
      (define results (make-hasheq))
@@ -878,6 +1034,18 @@ Usage:
   benchpilot observe cancel <observation-id>   [--json] [--endpoint URL]
   benchpilot report                            [--format html] [--out PATH]
                                                [--target ID] [--json] [--endpoint URL]
+  benchpilot uds dtc read                      [--mask XX] [--target ID] [--json]
+  benchpilot uds dtc clear                     [--group XXXXXX] [--target ID] [--json]
+  benchpilot can send <data-hex> [--id 0x123] [--extended] [--resource ID]
+  benchpilot can capture start|stop <capture-id> [--resource ID] [--capacity N]
+  benchpilot can frames <capture-id> [--limit N] [--json]
+  benchpilot can decode <capture-id> --dbc FILE --id 0x123 [--limit N] [--json]
+  benchpilot lease acquire|renew|release <target-or-id> [--ttl SEC] [--json]
+  benchpilot lease list                        [--json]
+  benchpilot store evidence                    [--limit N] [--json]
+  benchpilot store observations                [--limit N] [--json]
+  benchpilot store artifacts                   [--json]
+  benchpilot store artifact <id> [--out PATH]  [--json]
 
   benchpilot preflight              [--target ID] [--json]
   benchpilot bench validate         [--target ID] [--json]

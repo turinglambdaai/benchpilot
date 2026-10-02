@@ -89,8 +89,10 @@
 
 (define (with-bus-mutex bus proc)
   (semaphore-wait/enable-break (socketcan-bus-mutex bus))
-  (begin0 (proc)
-    (semaphore-post (socketcan-bus-mutex bus))))
+  (dynamic-wind
+ (lambda () (void))
+ proc
+ (lambda () (semaphore-post (socketcan-bus-mutex bus)))))
 
 ;; ----------------------------------------------------------------------------
 ;; libc bindings (lazy, cached; errno is read right after a failing call)

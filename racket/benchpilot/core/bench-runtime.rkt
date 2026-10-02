@@ -21,6 +21,14 @@
          "readiness.rkt"
          "runtime-state.rkt")
 
+(require (only-in benchpilot/diagnostics/flash/image
+                  image-format-for-path
+                  image-segment-address
+                  image-segment-data
+                  merge-image-segments
+                  parse-intel-hex
+                  parse-srecord))
+
 ;; driver generics (Core abstractions)
 (provide gen:resource-health-check
          gen:power-supply
@@ -58,6 +66,7 @@
          driver-create-runtime
          ;; runtime object: state + registry
          (struct-out bench-runtime)
+         (struct-out target-ref)
          make-bench-runtime
          runtime-target
          runtime-preflight
@@ -726,11 +735,26 @@
                                seg
                                [data
                                 (read-segment-file (uds-flash-segment-file seg) base-directory)])))]))
-        (begin
+        (let ()
           (unless address
             (raise-validation
              "Provide --address (flash start address, for example 0x08000000) or a flash plan file."))
-          (uds-flash-plan (list (uds-flash-segment address (file->bytes firmware-path) #f))
+          ;; BIN keeps one explicit-address segment; HEX/S-record images
+          ;; carry their own addresses and become one segment per region.
+          (define image-format (image-format-for-path firmware-path))
+          (define segments
+            (if image-format
+                (let* ([text (file->string firmware-path)]
+                       [raw (if (string=? image-format "hex")
+                                (parse-intel-hex text)
+                                (parse-srecord text))]
+                       [merged (merge-image-segments raw)])
+                  (for/list ([seg (in-list merged)])
+                    (uds-flash-segment (image-segment-address seg)
+                                       (bytes->list (image-segment-data seg))
+                                       #f)))
+                (list (uds-flash-segment address (file->bytes firmware-path) #f))))
+          (uds-flash-plan segments
                           1024
                           #x02
                           #f

@@ -193,7 +193,7 @@
 
 (define (with-client-mutex c proc)
   (semaphore-wait/enable-break (doip-client-mutex c))
-  (begin0 (proc) (semaphore-post (doip-client-mutex c))))
+  (dynamic-wind void proc (lambda () (semaphore-post (doip-client-mutex c)))))
 
 ;; Connects TCP, then performs the routing activation handshake.
 (define (doip-client-connect! c host [port doip-port] #:cancel [cancel #f])
@@ -463,7 +463,7 @@
 
 (define (with-channel-mutex sema proc)
   (semaphore-wait/enable-break sema)
-  (begin0 (proc) (semaphore-post sema)))
+  (dynamic-wind void proc (lambda () (semaphore-post sema))))
 
 (define (open-doip-channel! c)
   (with-channel-mutex
