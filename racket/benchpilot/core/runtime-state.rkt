@@ -11,6 +11,7 @@
          racket/string)
 
 (require "contracts.rkt"
+         "device-errors.rkt"
          "evidence.rkt"
          "persist.rkt"
          "profile.rkt")
@@ -404,7 +405,11 @@
                 (record! (operation-cancellation-evidence) "cancelled" "Operation cancelled.")
                 (raise e)]))]
           [exn:fail? (lambda (e)
-                       (record! (operation-exception-evidence (exn-message e) (exception-type-name e))
+                       (record! (append (operation-exception-evidence
+                                         (exn-message e)
+                                         (exception-type-name e))
+                                        (list (device-error-evidence-item
+                                               (exn-message e))))
                                 "faulted"
                                 (bound-history-error (exn-message e)))
                        (raise e))])
