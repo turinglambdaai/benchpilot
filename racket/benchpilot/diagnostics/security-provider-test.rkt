@@ -12,6 +12,9 @@
            racket/runtime-path
            rackunit)
 
+  ;; POSIX-only: the provider runs a shell script through exec, which has
+  ;; no equivalent for a bare .sh file on Windows.
+  (when (eq? (system-path-convention-type) 'unix)
   (test-case "external command provider computes the key from the seed"
     (define script-path (make-temporary-file "keyprov-~a.sh"))
     (display-to-file
@@ -29,7 +32,7 @@ SCRIPT
     (check-not-false deriver)
     ;; seed AA -> AA xor 5A = F0
     (check-equal? (deriver (list #xAA)) (list #xF0))
-    (delete-file script-path))
+    (delete-file script-path)))
 
   (test-case "unknown deriver names resolve to nothing"
     (check-false (resolve-key-deriver "no-such-deriver")))
