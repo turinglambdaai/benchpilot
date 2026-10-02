@@ -55,6 +55,10 @@ jobs:
 
   publish:
     needs: [preflight, test]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
