@@ -12,7 +12,7 @@
 (require benchpilot/core/contracts
          benchpilot/core/runtime-state
          benchpilot/diagnostics/isotp/codec
-         benchpilot/diagnostics/transport/simulated-can-bus)
+         benchpilot/diagnostics/transport/can-bus)
 
 (provide (struct-out isotp-options)
          (struct-out exn:fail:isotp)
@@ -73,14 +73,14 @@
                     (box #f)
                     (lambda (frame) (on-frame-received! (unbox ep-box) frame))))
   (set-box! ep-box ep)
-  (sim-can-port-bus-on-frame! bus (isotp-endpoint-listener ep))
+  (can-bus-on-frame! bus (isotp-endpoint-listener ep))
   ep)
 
 (define (isotp-endpoint-dispose! ep)
-  (sim-can-port-bus-on-frame! (isotp-endpoint-bus ep) #f))
+  (can-bus-on-frame! (isotp-endpoint-bus ep) #f))
 
 (define (send-can! ep data)
-  (sim-can-port-bus-send!
+  (can-bus-send!
    (isotp-endpoint-bus ep)
    (can-frame (isotp-endpoint-tx-id ep) (> (isotp-endpoint-tx-id ep) #x7FF) data)))
 

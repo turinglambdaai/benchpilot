@@ -17,13 +17,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Verify tag matches Directory.Build.props version
+      - name: Verify tag matches the version constant
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          VERSION="$(sed -n 's:.*<VersionPrefix>\([^<]*\)</VersionPrefix>.*:\1:p' Directory.Build.props | head -n1 | tr -d '[:space:]')"
+          VERSION="$(sed -n 's/^(define benchpilot-version "\(.*\)")$/\1/p' racket/benchpilot/protocol/local-auth.rkt | head -n1)"
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           if [ -z "$VERSION" ] || [ "$TAG_VERSION" != "$VERSION" ]; then
-            echo "tag $GITHUB_REF_NAME does not match Directory.Build.props VersionPrefix '$VERSION'" >&2
+            echo "tag $GITHUB_REF_NAME does not match benchpilot-version '$VERSION'" >&2
             exit 1
           fi
           echo "release preflight: version $VERSION verified"
@@ -36,13 +36,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
+      - name: Setup Racket
+        uses: Bogdanp/setup-racket@v1.15
         with:
-          dotnet-version: '10.0.x'
-      - name: Build
-        run: dotnet build -c Release
-      - name: Test (unit + e2e)
-        run: dotnet test --no-build -c Release
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: '9.3'
+      - name: Install package
+        run: raco pkg install --auto --name benchpilot --link racket
+      - name: Test (unit + driver + MCP + E2E)
+        run: raco test racket/benchpilot
       - name: Smoke runtime + graceful shutdown
         if: runner.os == 'Linux'
         run: |
@@ -51,39 +55,40 @@ jobs:
 
   publish:
     needs: [preflight, test]
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        rid: [win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64, osx-x64]
+        include:
+          - rid: win-x64
+            os: windows-latest
+          - rid: linux-x64
+            os: ubuntu-latest
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+          - rid: osx-arm64
+            os: macos-15
+          - rid: osx-x64
+            os: macos-13
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
+      - name: Setup Racket
+        uses: Bogdanp/setup-racket@v1.15
         with:
-          dotnet-version: '10.0.x'
+          architecture: '${{ matrix.rid == ''osx-arm64'' && ''arm64'' || matrix.rid == ''linux-arm64'' && ''arm64'' || ''x64'' }}'
+          distribution: full
+          variant: CS
+          version: '9.3'
 
       - name: Determine version from tag
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Publish self-contained single-file shells
+      - name: Build distribution
+        shell: bash
         run: |
           VER="${{ steps.version.outputs.version }}"
-          RID="${{ matrix.rid }}"
-          STAGE="stage/$RID"
-          mkdir -p "$STAGE"
-          for project in Benchpilot.RuntimeHost Benchpilot.Cli Benchpilot.Mcp; do
-            dotnet publish "src/$project" \
-              -c Release -r "$RID" \
-              --self-contained true \
-              -p:PublishSingleFile=true \
-              -p:IncludeNativeLibrariesForSelfExtract=true \
-              -p:DebugType=None \
-              -p:DebugSymbols=false \
-              -p:Version="$VER" \
-              -o "$STAGE"
-          done
+          bash scripts/build-dist.sh "$VER" "${{ matrix.rid }}" "dist/${{ matrix.rid }}"
 
       - name: Package
         id: package
@@ -92,29 +97,12 @@ jobs:
           VER="${{ steps.version.outputs.version }}"
           RID="${{ matrix.rid }}"
           NAME="benchpilot-$VER-$RID"
-          mkdir "$NAME"
-          # Ship exactly the three executables. Plain names on POSIX, .exe on
-          # Windows; publish intermediates (pdb, static web assets manifests)
-          # stay behind.
-          for exe in benchpilotd benchpilot benchpilot-mcp; do
-            if [[ -f "stage/$RID/$exe" ]]; then
-              mv "stage/$RID/$exe" "$NAME/"
-            elif [[ -f "stage/$RID/$exe.exe" ]]; then
-              mv "stage/$RID/$exe.exe" "$NAME/"
-            else
-              echo "::error::publish output missing: $exe"
-              ls -la "stage/$RID"
-              exit 1
-            fi
-          done
-          ls -la "$NAME"
+          mv "dist/$RID" "$NAME"
           mkdir -p artifacts
           if [[ "$RID" == win-* ]]; then
             zip -q -r "artifacts/$NAME.zip" "$NAME"
-            echo "file=artifacts/$NAME.zip" >> "$GITHUB_OUTPUT"
           else
             tar -czf "artifacts/$NAME.tar.gz" "$NAME"
-            echo "file=artifacts/$NAME.tar.gz" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build Debian package
@@ -128,8 +116,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ./artifacts/benchpilot-*-linux-x64.deb
-          test -x /opt/benchpilot/benchpilot
-          test -L /usr/bin/benchpilot
+          test -x /opt/benchpilot/bin/benchpilot
+          test -d /opt/benchpilot/lib
+          grep -q 'exec "/opt/benchpilot/bin/benchpilot"' /usr/bin/benchpilot
+          /usr/bin/benchpilot --version
           sudo apt-get remove -y benchpilot
           test ! -e /usr/bin/benchpilot
 

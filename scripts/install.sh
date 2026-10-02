@@ -57,12 +57,24 @@ fetch "$BASE/SHA256SUMS.txt" "$TMP/SHA256SUMS.txt"
   sha256sum --ignore-missing -c SHA256SUMS.txt
 )
 
-BIN="$PREFIX/bin"
-mkdir -p "$BIN"
-tar -xzf "$TMP/$ARCHIVE" -C "$BIN" --strip-components=1
-chmod +x "$BIN/benchpilot" "$BIN/benchpilotd" "$BIN/benchpilot-mcp"
+# Unix archives are a full distribution tree (bin/ + lib/); it installs to
+# lib/benchpilot/<version> and bin/ gets thin wrappers so the packaged
+# runtime keeps resolving relative to the real launchers.
+DIST="$PREFIX/lib/benchpilot/$VER"
+mkdir -p "$DIST" "$PREFIX/bin"
+tar -xzf "$TMP/$ARCHIVE" -C "$DIST" --strip-components=1
+for name in benchpilot benchpilotd benchpilot-mcp; do
+  chmod +x "$DIST/bin/$name"
+  cat > "$PREFIX/bin/$name" <<WRAPPER
+#!/bin/sh
+# benchpilot wrapper
+exec "$DIST/bin/$name" "\$@"
+WRAPPER
+  chmod +x "$PREFIX/bin/$name"
+done
 
-log "installed $VER ($RID) into $BIN"
+log "installed $VER ($RID) into $DIST"
+BIN="$PREFIX/bin"
 case ":$PATH:" in
   *":$BIN:"*) ;;
   *)

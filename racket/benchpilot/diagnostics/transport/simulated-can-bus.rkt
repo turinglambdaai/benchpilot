@@ -10,7 +10,8 @@
 
 (require benchpilot/core/contracts
          benchpilot/core/runtime-state
-         benchpilot/diagnostics/isotp/codec)
+         benchpilot/diagnostics/isotp/codec
+         benchpilot/diagnostics/transport/can-bus)
 
 (provide (struct-out simulated-can-bus)
          (struct-out sim-can-port)
@@ -101,7 +102,13 @@
 ;; thread, so the ISO-TP endpoint attaches exactly like to SocketCAN/PCAN.
 ;; ----------------------------------------------------------------------------
 
-(struct sim-tester-port (port name listener-box pump-thread-box open-box))
+(struct sim-tester-port (port name listener-box pump-thread-box open-box)
+  #:methods gen:can-bus
+  [(define (can-bus-name b) (sim-tester-port-name b))
+   (define (can-bus-open! b) (sim-can-port-bus-open! b))
+   (define (can-bus-send! b frame) (sim-can-port-bus-send! b frame))
+   (define (can-bus-on-frame! b listener) (sim-can-port-bus-on-frame! b listener))
+   (define (can-bus-dispose! b) (void))])
 
 (define (make-sim-can-port-bus port [name "sim-can-port"])
   (sim-tester-port port name (box #f) (box #f) (box #f)))

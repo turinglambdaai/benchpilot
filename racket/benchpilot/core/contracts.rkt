@@ -145,6 +145,8 @@
     [(doip-vehicle-summary? v) (doip-vehicle-summary->jsexpr v)]
     [(doip-discovery-result? v) (doip-discovery-result->jsexpr v)]
     [(shutdown-result? v) (shutdown-result->jsexpr v)]
+    [(update-check-result? v) (update-check-result->jsexpr v)]
+    [(update-result? v) (update-result->jsexpr v)]
     [else (error 'api->jsexpr "no serializer for ~a" v)]))
 
 ;; ----------------------------------------------------------------------------
@@ -359,6 +361,18 @@
 (api-record doip-vehicle-summary (vin string) (logical-address string) (ip-address nullable-string))
 (api-record doip-discovery-result (ok boolean) (vehicles record-list) (error nullable-string))
 (api-record shutdown-result (ok boolean) (state string) (error nullable-string))
+(api-record update-check-result
+            (update-available boolean)
+            (current-version string)
+            (latest-version nullable-string)
+            (release-url nullable-string)
+            (error nullable-string))
+(api-record update-result
+            (ok boolean)
+            (message string)
+            (new-version nullable-string)
+            (daemon-was-running boolean)
+            (error nullable-string))
 
 ;; ----------------------------------------------------------------------------
 ;; Runtime internal record types (RuntimeTypes.cs / OperationEvidence.cs /

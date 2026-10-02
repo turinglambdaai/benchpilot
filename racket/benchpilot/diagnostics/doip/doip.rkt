@@ -273,25 +273,37 @@
 ;; UDP vehicle discovery: loopback unicast first (simulators bind loopback
 ;; only), then LAN broadcast; every valid answer inside the window returns.
 (define (doip-client-discover [window-ms 500] #:cancel [cancel #f])
-  (define sock (udp-open-socket))
-  (udp-bind! sock #f 0)
+  ;; Every leg is best-effort: a host without a broadcast route, no free
+  ;; port or a blocked socket still yields an empty discovery result
+  ;; instead of a hard error — hardened beyond the C# original, which let
+  ;; the SocketException surface.
+  (define sock
+    (with-handlers ([exn:fail? (lambda (_) #f)])
+      (define s (udp-open-socket))
+      (udp-bind! s #f 0)
+      s))
   (define request (list->bytes (doip-frame->bytes (make-doip-frame-vehicle-identification-request))))
-  (with-handlers ([exn:fail:network? (lambda (_) (void))])
-    (udp-send-to sock "127.0.0.1" doip-port request))
-  (udp-send-to sock "255.255.255.255" doip-port request)
+  (when sock
+    (with-handlers ([exn:fail? (lambda (_) (void))])
+      (udp-send-to sock "127.0.0.1" doip-port request))
+    (with-handlers ([exn:fail? (lambda (_) (void))])
+      (udp-send-to sock "255.255.255.255" doip-port request)))
 
   (define identities '())
   (define deadline (+ (now-millis) window-ms))
   (define receive-buffer (make-bytes 2048))
   (let loop ()
-    (when (< (now-millis) deadline)
-      (define-values (len hostname port* response)
-        (udp-receive!* sock receive-buffer))
+    (when (and sock (< (now-millis) deadline))
+      ;; udp-receive!* yields (len hostname port) here; the shared buffer
+      ;; carries the datagram.
+      (define-values (len hostname port*)
+        (with-handlers ([exn:fail? (lambda (_) (values 0 #f 0))])
+          (udp-receive!* sock receive-buffer)))
       (cond
         [(and len (> len 0))
          (define decoded
            (with-handlers ([exn:fail:doip? (lambda (_) #f)])
-             (doip-try-decode (bytes->list (subbytes response 0 len)))))
+             (doip-try-decode (bytes->list (subbytes receive-buffer 0 len)))))
          (when (and decoded
                     (= (doip-frame-type (car decoded)) pt-vehicle-identification-response)
                     (>= (length (doip-frame-payload (car decoded))) 21))
@@ -521,21 +533,43 @@
               "rxId" (format "0x~a" (hex-up* (doip-uds-channel-ecu-address c) 1)))
       #f))])
 
-;; DiagResourceFactories (doip part): settings host/port/requestId/responseId.
+;; DiagResourceFactories (doip part): settings host/port/ecuAddress/testerAddress.
 (define (make-doip-uds-resource-factory)
-  (driver-factory "doip-uds"
+  (driver-factory "doip"
                   (lambda (resource-id config)
                     (define settings (bench-resource-settings config))
+                    (define host
+                      (or (hash-ref settings 'host #f)
+                          (raise-validation
+                           (format "Resource '~a' (doip) requires 'host' (the DoIP entity's IP, reachable directly over RJ45 through a 100BASE-T1 media converter, or a gateway)."
+                                   resource-id))))
+                    (define ecu-address
+                      (or (setting-address settings 'ecuAddress)
+                          (raise-validation
+                           (format "Resource '~a' (doip) requires 'ecuAddress' (target logical address)."
+                                   resource-id))))
                     (doip-uds-driver
-                     (make-doip-uds-channel
-                      (or (hash-ref settings 'host #f) "127.0.0.1")
-                      (or (parse-int-setting (hash-ref settings 'port #f)) doip-port)
-                      (or (parse-hex-setting* (hash-ref settings 'requestId #f)) #x0E00)
-                      (or (parse-hex-setting* (hash-ref settings 'responseId #f)) #x0E10))))))
+                     (make-doip-uds-channel host
+                                            (or (setting-address settings 'port) doip-port)
+                                            (or (setting-address settings 'testerAddress) #x0E00)
+                                            ecu-address
+                                            #:security-level
+                                            (setting-address settings 'securityLevel)
+                                            #:key-deriver-name
+                                            (or (and (string? (hash-ref settings 'keyDeriver #f))
+                                                     (hash-ref settings 'keyDeriver #f))
+                                                "xor0x5a")
+                                            #:max-block-payload
+                                            (or (setting-address settings 'maxBlockPayload)
+                                                4096))))))
 
-(define (parse-int-setting v)
-  (and (exact-integer? v) v))
-(define (parse-hex-setting* v)
-  (and (string? v)
-       (let ([m (regexp-match #rx"^0x([0-9a-fA-F]+)$" v)])
-         (and m (string->number (second m) 16)))))
+;; DiagSettings.GetInt port: a JSON number or a "0x..." string.
+(define (setting-address settings key)
+  (define v (hash-ref settings key #f))
+  (cond
+    [(exact-integer? v) v]
+    [(and (real? v) (integer? v)) (inexact->exact v)]
+    [(string? v)
+     (define m (regexp-match #rx"^0x([0-9a-fA-F]+)$" v))
+     (and m (string->number (second m) 16))]
+    [else #f]))

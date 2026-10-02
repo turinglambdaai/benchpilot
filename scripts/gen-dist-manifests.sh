@@ -19,10 +19,9 @@ mac_x64="$(hash_of "benchpilot-$ver-osx-x64.tar.gz")"
 lin_arm="$(hash_of "benchpilot-$ver-linux-arm64.tar.gz")"
 lin_x64="$(hash_of "benchpilot-$ver-linux-x64.tar.gz")"
 win_x64="$(hash_of "benchpilot-$ver-win-x64.zip")"
-win_arm="$(hash_of "benchpilot-$ver-win-arm64.zip")"
 
 missing=0
-for v in "$mac_arm" "$mac_x64" "$lin_arm" "$lin_x64" "$win_x64" "$win_arm"; do
+for v in "$mac_arm" "$mac_x64" "$lin_arm" "$lin_x64" "$win_x64"; do
   [ -n "$v" ] || { echo "SHA256SUMS.txt has no entry for one of the release archives" >&2; missing=1; }
 done
 [ "$missing" -eq 0 ] || exit 1
@@ -59,9 +58,19 @@ class Benchpilot < Formula
   end
 
   def install
+    # The archive is a full distribution tree (bin/ + lib/). It installs to
+    # libexec and bin gets thin wrappers so the packaged runtime keeps
+    # resolving relative to the real launchers.
     %w[benchpilot benchpilotd benchpilot-mcp].each do |exe|
-      bin.install "benchpilot-#{version}-#{rid}/#{exe}"
+      chmod 0755, "benchpilot-#{version}-#{rid}/bin/#{exe}"
+      (libexec/"bin").install "benchpilot-#{version}-#{rid}/bin/#{exe}"
+      (bin/exe).write <<~WRAPPER
+        #!/bin/sh
+        # benchpilot wrapper
+        exec "#{libexec}/bin/#{exe}" "$@"
+      WRAPPER
     end
+    (libexec/"lib").install Dir["benchpilot-#{version}-#{rid}/lib/*"]
   end
 
   def caveats
@@ -85,11 +94,6 @@ cat > benchpilot.scoop.json <<EOF
       "url": "$base/benchpilot-$ver-win-x64.zip",
       "hash": "$win_x64",
       "extract_dir": "benchpilot-$ver-win-x64"
-    },
-    "arm64": {
-      "url": "$base/benchpilot-$ver-win-arm64.zip",
-      "hash": "$win_arm",
-      "extract_dir": "benchpilot-$ver-win-arm64"
     }
   },
   "bin": ["benchpilot.exe", "benchpilotd.exe", "benchpilot-mcp.exe"],
@@ -99,10 +103,6 @@ cat > benchpilot.scoop.json <<EOF
       "64bit": {
         "url": "https://github.com/turinglambdaai/benchpilot/releases/download/v\$version/benchpilot-\$version-win-x64.zip",
         "extract_dir": "benchpilot-\$version-win-x64"
-      },
-      "arm64": {
-        "url": "https://github.com/turinglambdaai/benchpilot/releases/download/v\$version/benchpilot-\$version-win-arm64.zip",
-        "extract_dir": "benchpilot-\$version-win-arm64"
       }
     }
   }

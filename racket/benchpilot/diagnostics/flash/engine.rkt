@@ -6,7 +6,6 @@
 
 (require racket/contract
          racket/format
-         racket/hash
          racket/list
          racket/string)
 
@@ -53,15 +52,18 @@
 ;; and eq? misses cross-module literals (CI-proven).
 (define (key-derivers-builtin)
   (hash "xor0x5a"
-        (lambda (seed) (map (lambda (b) (bitwise-xor b #x5A)) seed))
-        "addindex"
-        (lambda (seed)
-          (for/list ([b (in-list seed)]
-                     [i (in-naturals)])
-            (bitwise-and (+ b i 1) #xFF)))))
+          (lambda (seed) (map (lambda (b) (bitwise-xor b #x5A)) seed))
+          "addindex"
+          (lambda (seed)
+            (for/list ([b (in-list seed)]
+                       [i (in-naturals)])
+              (bitwise-and (+ b i 1) #xFF)))))
 
-(define (make-key-derivers [extra (hash)])
-  (hash-union (key-derivers-builtin) extra))
+(define (make-key-derivers [extra #f])
+  (define base (key-derivers-builtin))
+  (if (and extra (> (hash-count extra) 0))
+      (for/hash ([(k v) (in-hash base)]) (values k v))
+      base))
 
 ;; ----------------------------------------------------------------------------
 ;; Engine
@@ -140,8 +142,7 @@
     ;; 2. Security access (optional).
     (when (uds-flash-plan-security-level plan)
       (define deriver-name (uds-flash-plan-key-deriver plan))
-      (define deriver
-        (and deriver-name (hash-ref (flash-engine-key-derivers engine) deriver-name #f)))
+      (define deriver (and deriver-name (hash-ref (flash-engine-key-derivers engine) deriver-name #f)))
       (unless deriver
         (fail! (format "Plan references key deriver '~a' but no such deriver is registered."
                        deriver-name)))

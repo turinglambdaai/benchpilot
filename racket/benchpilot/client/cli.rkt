@@ -16,13 +16,22 @@
          benchpilot/core/profile
          racket/file
          racket/path
+         benchpilot/client/html-report
+         benchpilot/client/updater
          benchpilot/diagnostics/flash/engine
          benchpilot/diagnostics/uds/protocol
          benchpilot/protocol/local-auth)
 
 (provide bench-client-run!
          parse-cli-args
-         last-printed-box)
+         last-printed-box
+         resolve-endpoint
+         api-call
+         require-ok
+         try-autostart
+         (struct-out exn:benchpilot:network)
+         (struct-out bench-client-error)
+         benchpilot-version)
 
 ;; ----------------------------------------------------------------------------
 ;; Errors: code → exit code, mirroring the C# BenchClientException switch.
@@ -33,7 +42,8 @@
   #:transparent)
 
 (define (error-exit-code e)
-  (case (bench-client-error-code e)
+  ;; codes are strings on the wire; case datums are symbols.
+  (case (string->symbol (bench-client-error-code e))
     [(busy) 5]
     [(deadline_exceeded) 6]
     [(cancelled) 1]
@@ -244,7 +254,14 @@
   (define self (find-system-path 'run-file))
   (define dir (path-only self))
   (define exe-name (if (eq? (system-type) 'windows) "benchpilotd.exe" "benchpilotd"))
-  (define candidate (and dir (let ([p (build-path dir exe-name)]) (and (file-exists? p) p))))
+  (define candidate
+    (and dir
+         (let ()
+           (define exe (build-path dir exe-name))
+           (define rkt (build-path dir "benchpilotd.rkt"))
+           (cond [(file-exists? exe) exe]
+                 [(file-exists? rkt) rkt]
+                 [else #f]))))
   (or (and candidate (path->string candidate))
       (let ([p (find-executable-path exe-name)]) (and p (path->string p)))))
 
@@ -259,8 +276,20 @@
              (with-handlers ([exn:fail? (lambda (_) (open-output-nowhere))])
                (open-output-file log-file #:mode 'text #:exists 'append)))
            ;; Spawn detached: the daemon detaches console handles itself
-           ;; under BENCHPILOT_QUIET, so the parent's readers see EOF.
-           (define p (subprocess #f #f log-out daemon))
+           ;; under BENCHPILOT_QUIET, so the parent's readers see EOF. A
+           ;; staged .rkt daemon (E2E) runs through the racket binary.
+           (define racket-exe (or (find-executable-path "racket")
+                                  (find-system-path 'exec-file)))
+           (define-values (spawn-cmd spawn-args)
+             (if (regexp-match? #rx"[.]rkt$" daemon)
+                 (values racket-exe (list daemon))
+                 (values daemon '())))
+           (define-values (p daemon-stdout daemon-stdin daemon-stderr)
+             (apply subprocess #f #f log-out spawn-cmd spawn-args))
+           ;; Streams the parent inherited arrive as #f.
+           (when daemon-stdout (close-input-port daemon-stdout))
+           (when daemon-stdin (close-output-port daemon-stdin))
+           (when daemon-stderr (close-input-port daemon-stderr))
            (close-output-port log-out)
            ;; Wait for the endpoint to answer (up to ~5 s).
            (let wait ([attempts 50])
@@ -395,13 +424,14 @@
   (define target-count 0)
   (define reachable #f)
 
-  (with-handlers ([exn:benchpilot? (lambda (e)
+  ;; The network subtype must come first: exn:benchpilot? matches it too.
+  (with-handlers ([exn:benchpilot:network? (lambda (e) (set! status-error (exn-message e)))]
+                  [exn:benchpilot? (lambda (e)
                                      (set! status-error
                                            (format "~a: ~a"
                                                    (bench-client-error-code e)
                                                    (bench-client-error-message e)))
-                                     (set! reachable (= (bench-client-error-status-code e) 401)))]
-                  [exn:benchpilot:network? (lambda (e) (set! status-error (exn-message e)))])
+                                     (set! reachable (= (bench-client-error-status-code e) 401)))])
     (define-values (status body) (api-call host port "GET" "/status" (hasheq) #f))
     (when (< status 300)
       (set! reachable #t)
@@ -471,9 +501,19 @@
                      (print-error "cancelled" "Request cancelled." (args-flag args 'json))
                      1)]
                   [bench-client-error? (lambda (e)
-                                         (print-error (bench-client-error-code e)
-                                                      (bench-client-error-message e)
-                                                      (args-flag args 'json))
+                                         ;; Structured fields (operationId,
+                                         ;; busyScope, deadlineMs, ...) stay
+                                         ;; visible on the wire.
+                                         (print-result
+                                          (api-error #f
+                                                     (bench-client-error-code e)
+                                                     (bench-client-error-message e)
+                                                     (bench-client-error-operation-id e)
+                                                     (bench-client-error-busy-scope e)
+                                                     (bench-client-error-busy-id e)
+                                                     (bench-client-error-deadline-ms e)
+                                                     (bench-client-error-deadline-at-utc e))
+                                          (args-flag args 'json))
                                          (error-exit-code e))])
     (define positionals (cli-args-positionals args))
 
@@ -759,18 +799,50 @@
       (call "POST" "/doip/discover" (hasheq) (hasheq 'windowMs (args-int-opt args 'window-ms)))
       compact)
      (if (> (length (hash-ref (unbox last-printed-box) 'vehicles '())) 0) 0 1)]
-    [(update)
-     ;; Self-update lands with the Racket release packaging (Phase 5).
-     (print-result (api-error #f
-                              "not_supported"
-                              "benchpilot update arrives with the Racket release packaging (v0.6.0)."
-                              #f
-                              #f
-                              #f
-                              #f
-                              #f)
+    [(report)
+     ;; --format html: one static evidence report for the bench session.
+     (define results (make-hasheq))
+     (define (fetch! key method path query)
+       (define-values (st body) (api-call host port method path query #f))
+       (when (< st 300) (hash-set! results key body)))
+     (fetch! 'status "GET" "/status" (hasheq))
+     (fetch! 'validate "POST" "/validate"
+             (let ([t (args-get args 'target)])
+               (if t (hasheq 'target t) (hasheq))))
+     (fetch! 'operations "GET" "/operations/history" (hasheq 'limit 50))
+     (fetch! 'observations "GET" "/observations/history" (hasheq 'limit 50))
+     (define op-entries
+       (hash-ref (hash-ref results 'operations (hasheq)) 'operations '()))
+     (define obs-entries
+       (hash-ref (hash-ref results 'observations (hasheq)) 'observations '()))
+     (define latest-op
+       (findf (lambda (op) (equal? (hash-ref op 'state) "completed"))
+              op-entries))
+     (when latest-op
+       (fetch! 'operation-evidence "GET" "/operations/evidence"
+               (hasheq 'operationId (hash-ref latest-op 'id))))
+     (define latest-obs
+       (findf (lambda (op) (equal? (hash-ref op 'state) "completed"))
+              obs-entries))
+     (when latest-obs
+       (fetch! 'observation-evidence "GET" "/observations/evidence"
+               (hasheq 'observationId (hash-ref latest-obs 'id))))
+     (define out-path (or (args-get args 'out) "benchpilot-report.html"))
+     (display-to-file (build-html-report results) out-path #:exists 'replace)
+     (print-result (hasheq 'ok #t
+                           'format "html"
+                           'output out-path
+                           'runtimeVersion benchpilot-version)
                    compact)
-     4]
+     0]
+    [(update)
+     (define result (if (args-get args 'check) (update-check) (update-run)))
+     (print-result result compact)
+     (if (if (update-check-result? result)
+             (update-check-result-error result)
+             (not (update-result-ok result)))
+         4
+         0)]
     [(shutdown)
      (with-handlers ([exn:benchpilot:network? (lambda (_)
                                                 (print-result (shutdown-result #t "not_running" #f)
@@ -804,6 +876,8 @@ Usage:
   benchpilot observe history                   [--limit N] [--json] [--endpoint URL]
   benchpilot observe evidence <observation-id> [--json] [--endpoint URL]
   benchpilot observe cancel <observation-id>   [--json] [--endpoint URL]
+  benchpilot report                            [--format html] [--out PATH]
+                                               [--target ID] [--json] [--endpoint URL]
 
   benchpilot preflight              [--target ID] [--json]
   benchpilot bench validate         [--target ID] [--json]
@@ -861,6 +935,6 @@ Environment:
 ")))
 
 (module+ main
-  (define args (parse-cli-args (current-command-line-arguments)))
+  (define args (parse-cli-args (vector->list (current-command-line-arguments))))
   (define exit-code (bench-client-run! args))
   (exit exit-code))

@@ -2,6 +2,61 @@
 
 All notable changes to BenchPilot are documented here.
 
+## 0.6.0 - 2026-10-02
+
+The Racket port completes ([ADR 0002](docs/adr/0002-racket-port.md)); the
+C#/.NET tree of the 0.5.x line is removed and the release ships from the
+Racket sources only, at full contract parity (same frozen JSON API, CLI
+exit codes and E2E suite).
+
+### Added
+
+- Real-hardware drivers (phase 4): SocketCAN (Linux) and PCAN-Basic
+  (Windows) CAN transports behind the shared `can-iso-tp` profile driver,
+  and the `system-serial` serial console driver (POSIX termios + Windows
+  CommAPI backends) with bounded line buffering.
+- The resident daemon now composes the same seven resource factories as
+  the C# RuntimeHost did (simulator, sim-diagnostics, can-iso-tp, doip,
+  system-serial, jlink, scpi-power).
+- `benchpilot report --format html`: one self-contained static HTML
+  evidence report (bench status, readiness verdict, histories, newest
+  operation/observation evidence).
+- MCP adapter (`benchpilot-mcp`) with the full 26-tool proxy surface over
+  the resident daemon.
+- Debian package now ships the full Racket distribution tree under
+  `/opt/benchpilot` with thin `/usr/bin` wrappers; Homebrew formula and
+  the installers follow the same layout.
+
+### Changed
+
+- Release matrix drops `win-arm64`: Racket publishes no official Windows
+  ARM64 builds. Windows remains a single-file x64 build; scoop serves
+  64bit only.
+- The Unix release archives now carry a `bin/` + `lib/` distribution tree;
+  installers wrap the real launchers so self-update keeps swapping in
+  place.
+- The J-Link health check parses `ShowEmuList` output and applies the
+  deterministic USB probe selection policy (configured serial number wins;
+  multiple USB probes require one).
+- SCPI health check performs a real identify query without changing the
+  output state.
+- DoIP discovery returns an empty result on hosts without a broadcast
+  route instead of failing.
+
+### Fixed
+
+- Any request carrying a query string failed with an empty reply (the
+  HTTP server mis-indexed its query regex groups); the E2E suite was the
+  first harness to exercise query parameters.
+- CLI exit codes for `busy` (5) and `deadline_exceeded` (6) were
+  unreachable — string error codes were compared against symbol datums.
+- `benchpilot shutdown` stopped accepting work but never drained and
+  exited; it now follows the same graceful path as SIGTERM.
+- Structured error fields (`deadlineMs`, `deadlineAtUtc`, `busyScope`,
+  `operationId`) survive into the CLI's printed error JSON.
+- The J-Link driver consumed its subprocess pipes in the wrong order,
+  which would have hung real hardware runs.
+
 ## Unreleased
 
 Racket port kickoff ([ADR 0002](docs/adr/0002-racket-port.md)):

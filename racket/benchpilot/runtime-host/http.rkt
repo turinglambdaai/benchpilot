@@ -91,8 +91,9 @@
     ;; Split path and query.
     (define-values (path query-string)
       (let ([qm (regexp-match #rx"^([^?]*)\\?(.*)$" raw-target)])
+        ;; regexp-match yields (full match group1 group2).
         (if qm
-            (values (second qm) (fourth qm))
+            (values (second qm) (third qm))
             (values raw-target ""))))
     (define query (parse-query query-string))
     (define is-health (string-prefix? path "/healthz"))

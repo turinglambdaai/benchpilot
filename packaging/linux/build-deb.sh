@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Package the three BenchPilot executables as a Debian package.
+# Package the Racket distribution as a Debian package.
 #   usage: build-deb.sh <version> [output-dir]
-# Layout: /opt/benchpilot/{benchpilot,benchpilotd,benchpilot-mcp} with
-# symlinks in /usr/bin so sibling-daemon resolution keeps working.
+# Layout: /opt/benchpilot holds the full distribution tree (bin/ + lib/);
+# /usr/bin gets thin wrapper scripts so the packaged runtime keeps
+# resolving relative to the real launchers.
 
 version="${1:?usage: build-deb.sh <version> [output-dir]}"
 case "$version" in
@@ -16,25 +17,26 @@ work="$root/build/deb-linux"
 pkg="$work/pkg"
 
 rm -rf "$work"
-mkdir -p "$work/publish" "$pkg/DEBIAN" "$pkg/opt/benchpilot" "$pkg/usr/bin" "$root/$out_dir"
+mkdir -p "$work/dist" "$pkg/DEBIAN" "$pkg/opt/benchpilot" "$pkg/usr/bin" "$root/$out_dir"
 
 cd "$root"
-for project in Benchpilot.RuntimeHost Benchpilot.Cli Benchpilot.Mcp; do
-  dotnet publish "src/$project" \
-    -c Release -r linux-x64 \
-    --self-contained true \
-    -p:PublishSingleFile=true \
-    -p:IncludeNativeLibrariesForSelfExtract=true \
-    -p:DebugType=None \
-    -p:DebugSymbols=false \
-    -p:Version="$version" \
-    -o "$work/publish"
-done
+bash scripts/build-dist.sh "$version" linux-x64 "$work/dist"
 
+# The tree lands under /opt/benchpilot; wrappers in /usr/bin exec the real
+# launchers so their relative lib/ lookup keeps working.
+for dir in bin lib; do
+  mkdir -p "$pkg/opt/benchpilot/$dir"
+  cp -R "$work/dist/$dir/." "$pkg/opt/benchpilot/$dir/"
+done
 for exe in benchpilot benchpilotd benchpilot-mcp; do
-  test -f "$work/publish/$exe"
-  install -m 0755 "$work/publish/$exe" "$pkg/opt/benchpilot/$exe"
-  ln -s "/opt/benchpilot/$exe" "$pkg/usr/bin/$exe"
+  test -f "$pkg/opt/benchpilot/bin/$exe"
+  chmod 0755 "$pkg/opt/benchpilot/bin/$exe"
+  cat > "$pkg/usr/bin/$exe" <<WRAPPER
+#!/bin/sh
+# benchpilot wrapper
+exec "/opt/benchpilot/bin/$exe" "\$@"
+WRAPPER
+  chmod 0755 "$pkg/usr/bin/$exe"
 done
 
 cat > "$pkg/DEBIAN/control" <<EOF
@@ -45,7 +47,6 @@ Priority: optional
 Architecture: amd64
 Maintainer: turinglambdaai
 Homepage: https://benchpilot.jrtx.site/
-Depends: libicu72 | libicu74 | libicu76
 Description: ECU bench runtime for coding agents
  BenchPilot drives serial, J-Link, power and vehicle networking from one
  resident daemon: power, flash, serial observation and UDS diagnostics
@@ -55,7 +56,8 @@ EOF
 deb="$root/$out_dir/benchpilot-${version}-linux-x64.deb"
 dpkg-deb --build --root-owner-group "$pkg" "$deb"
 dpkg-deb --info "$deb" >/dev/null
-dpkg-deb --contents "$deb" | grep -q './opt/benchpilot/benchpilot$'
+dpkg-deb --contents "$deb" | grep -q './opt/benchpilot/bin/benchpilot$'
+dpkg-deb --contents "$deb" | grep -q './opt/benchpilot/lib/'
 
 hash="$(sha256sum "$deb" | awk '{print $1}')"
 printf '%s  %s' "$hash" "$(basename "$deb")" > "$deb.sha256"
