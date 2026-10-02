@@ -278,20 +278,26 @@
   (define request (list->bytes (doip-frame->bytes (make-doip-frame-vehicle-identification-request))))
   (with-handlers ([exn:fail:network? (lambda (_) (void))])
     (udp-send-to sock "127.0.0.1" doip-port request))
-  (udp-send-to sock "255.255.255.255" doip-port request)
+  ;; A host without a broadcast route (sandboxed CI, offline laptops) still
+  ;; gets an empty discovery result rather than a hard error — hardened
+  ;; beyond the C# original, which let the SocketException surface.
+  (with-handlers ([exn:fail:network? (lambda (_) (void))])
+    (udp-send-to sock "255.255.255.255" doip-port request))
 
   (define identities '())
   (define deadline (+ (now-millis) window-ms))
   (define receive-buffer (make-bytes 2048))
   (let loop ()
     (when (< (now-millis) deadline)
-      (define-values (len hostname port* response)
+      ;; udp-receive!* yields (len hostname port) here; the shared buffer
+      ;; carries the datagram.
+      (define-values (len hostname port*)
         (udp-receive!* sock receive-buffer))
       (cond
         [(and len (> len 0))
          (define decoded
            (with-handlers ([exn:fail:doip? (lambda (_) #f)])
-             (doip-try-decode (bytes->list (subbytes response 0 len)))))
+             (doip-try-decode (bytes->list (subbytes receive-buffer 0 len)))))
          (when (and decoded
                     (= (doip-frame-type (car decoded)) pt-vehicle-identification-response)
                     (>= (length (doip-frame-payload (car decoded))) 21))

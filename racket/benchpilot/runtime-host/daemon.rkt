@@ -272,7 +272,8 @@
                 (loop)))
             (exit 0)))
 
-  (define dispatch (make-dispatcher rt state lc begin-shutdown!))
+  (define dispatch
+    (make-dispatcher rt state lc (lambda () (semaphore-post shutdown-requested))))
 
   (http-serve
    #:host host
@@ -540,3 +541,6 @@
          (begin-shutdown!)
          (shutdown-result #t "stopping" #f))]
       [else #f])))
+
+(module+ main
+  (run-daemon))
