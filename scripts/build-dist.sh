@@ -8,6 +8,10 @@ set -euo pipefail
 VER="$1"; RID="$2"; DEST="$3"
 cd "$(dirname "$0")/.."
 
+# The launchers require the benchpilot collection; install the link
+# (no-op when the caller already did).
+raco pkg install --auto --name benchpilot --link racket
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
