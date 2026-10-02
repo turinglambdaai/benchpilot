@@ -9,14 +9,19 @@
 ;; wrapping happens once at the dispatch site, keeping the table flat.
 
 (require json
+         racket/file
          racket/format
          racket/list
          racket/port
          racket/string
-         racket/tcp)
+         racket/tcp
+         net/base64)
+
+(require benchpilot/core/hashing)
 
 (require benchpilot/core/bench-runtime
          benchpilot/core/contracts
+         benchpilot/core/persist
          benchpilot/core/profile
          benchpilot/core/runtime-state
          benchpilot/diagnostics/channels/sim-uds-channel
@@ -241,6 +246,15 @@
                                 (make-scpi-power-resource-factory))))
   (define rt (make-bench-runtime registry profile))
   (define state (bench-runtime-state rt))
+  ;; Selected evidence + artifacts persist across restarts and seed the
+  ;; in-memory bounded stores.
+  (define store
+    (with-handlers ([exn:fail? (lambda (_) #f)])
+      (open-persist-store)))
+  (when store
+    (set-runtime-store! state store)
+    (seed-persisted-operations! state (persist-load-recent store "operations.jsonl" 128))
+    (seed-persisted-observations! state (persist-load-recent store "observations.jsonl" 128)))
   (define lc (make-lifecycle))
   (define api-token (resolve-or-create-token))
 
@@ -273,7 +287,8 @@
             (exit 0)))
 
   (define dispatch
-    (make-dispatcher rt state lc (lambda () (semaphore-post shutdown-requested))))
+    (make-dispatcher rt state lc store
+                     (lambda () (semaphore-post shutdown-requested))))
 
   (http-serve
    #:host host
@@ -322,7 +337,7 @@
 ;; over the request's query/body. Returns #f for unknown routes.
 ;; ----------------------------------------------------------------------------
 
-(define (make-dispatcher rt state lc begin-shutdown!)
+(define (make-dispatcher rt state lc store begin-shutdown!)
   (define (target* query)
     (runtime-target rt (query-ref query "target")))
   (lambda (method api-path query body-json)
@@ -534,6 +549,46 @@
                                           (hex-up*4 (doip-vehicle-identity-logical-address identity)))
                                   (doip-vehicle-identity-ip-address identity)))
           #f))]
+      [(match? "GET" "/store/operations")
+       (lambda ()
+         (unless store (raise-validation "The persistent store is disabled."))
+         (hasheq 'kind "operation-list"
+                 'entries (persist-load-recent store "operations.jsonl"
+                                               (query-int query "limit" 50))))]
+      [(match? "GET" "/store/observations")
+       (lambda ()
+         (unless store (raise-validation "The persistent store is disabled."))
+         (hasheq 'kind "observation-list"
+                 'entries (persist-load-recent store "observations.jsonl"
+                                               (query-int query "limit" 50))))]
+      [(match? "GET" "/store/artifacts")
+       (lambda ()
+         (unless store (raise-validation "The persistent store is disabled."))
+         (define dir (build-path (persist-store-path store) "artifacts"))
+         (hasheq 'kind "artifact-list"
+                 'artifacts
+                 (for/list ([f (in-list (sort (directory-list dir) string<=?
+                                              #:key path->string))]
+                            #:when (file-exists? (build-path dir f)))
+                   (hasheq 'artifactId (path->string f)
+                           'bytes (file-size (build-path dir f))))))]
+      [(match? "GET" "/store/artifact")
+       (lambda ()
+         (unless store (raise-validation "The persistent store is disabled."))
+         (define id (query-ref query "artifactId"))
+         (when (string-blank? id)
+           (raise-validation "artifactId cannot be empty."))
+         (define path (persist-artifact-file store id))
+         (unless path
+           (raise (make-target-not-found-error
+                   (format "Artifact '~a' was not found." id))))
+         (define content (file->bytes path))
+         (hasheq 'kind "artifact"
+                 'artifactId id
+                 'bytes (bytes-length content)
+                 'sha256 (or (sha256-hex path) "")
+                 'contentBase64
+                 (bytes->string/latin-1 (base64-encode content ""))))]
       [(match? "POST" "/shutdown")
        (lambda ()
          ;; Token-authenticated like every other endpoint: the graceful

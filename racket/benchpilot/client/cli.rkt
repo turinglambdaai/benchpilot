@@ -5,6 +5,7 @@
 ;; stable exit-code contract, one-retry autostart and the doctor check.
 
 (require json
+         net/base64
          racket/format
          racket/list
          racket/port
@@ -799,6 +800,41 @@
       (call "POST" "/doip/discover" (hasheq) (hasheq 'windowMs (args-int-opt args 'window-ms)))
       compact)
      (if (> (length (hash-ref (unbox last-printed-box) 'vehicles '())) 0) 0 1)]
+    [(store)
+     (case subcommand
+       [(evidence)
+        (print-result (call "GET" "/store/operations"
+                            (hasheq 'limit (or (args-int-opt args 'limit) 50)))
+                      compact)
+        0]
+       [(observations)
+        (print-result (call "GET" "/store/observations"
+                            (hasheq 'limit (or (args-int-opt args 'limit) 50)))
+                      compact)
+        0]
+       [(artifacts)
+        (print-result (call "GET" "/store/artifacts" (hasheq)) compact)
+        0]
+       [(artifact)
+        (define id (require-positional 2 "artifact id"))
+        (define result (call "GET" "/store/artifact" (hasheq 'artifactId id)))
+        (define content (base64-decode (string->bytes/latin-1
+                                        (hash-ref result 'contentBase64))))
+        (define out (args-get args 'out))
+        (if out
+            (begin
+              (display-to-file content out #:mode 'binary #:exists 'replace)
+              (print-result (hasheq 'ok #t
+                                    'artifactId (hash-ref result 'artifactId)
+                                    'bytes (hash-ref result 'bytes)
+                                    'sha256 (hash-ref result 'sha256)
+                                    'output out)
+                            compact))
+            (begin
+              (write-bytes content)
+              (newline)))
+        0]
+       [else (raise-validation (format "Unknown command: store ~a" subcommand))])]
     [(report)
      ;; --format html: one static evidence report for the bench session.
      (define results (make-hasheq))
@@ -878,6 +914,10 @@ Usage:
   benchpilot observe cancel <observation-id>   [--json] [--endpoint URL]
   benchpilot report                            [--format html] [--out PATH]
                                                [--target ID] [--json] [--endpoint URL]
+  benchpilot store evidence                    [--limit N] [--json]
+  benchpilot store observations                [--limit N] [--json]
+  benchpilot store artifacts                   [--json]
+  benchpilot store artifact <id> [--out PATH]  [--json]
 
   benchpilot preflight              [--target ID] [--json]
   benchpilot bench validate         [--target ID] [--json]

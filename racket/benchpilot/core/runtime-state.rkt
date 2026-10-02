@@ -12,6 +12,7 @@
 
 (require "contracts.rkt"
          "evidence.rkt"
+         "persist.rkt"
          "profile.rkt")
 
 (provide (struct-out exec-cancel)
@@ -22,6 +23,9 @@
          check-disposed
          new-id
          now-millis
+         set-runtime-store!
+         seed-persisted-operations!
+         seed-persisted-observations!
          make-exec-cancel
          cancel-evt
          exec-cancel-request-cancel!
@@ -128,7 +132,8 @@
                  op-evidence
                  obs-evidence
                  context-store
-                 disposed-box)
+                 disposed-box
+                 store-box)
   #:transparent)
 
 ;; One in-flight mutation/observation: identity, held gates, cancellation.
@@ -150,6 +155,7 @@
                  (make-evidence-store)
                  (make-evidence-store)
                  (make-context-store)
+                 (box #f)
                  (box #f)))
 
 (define (check-disposed rt)
@@ -346,27 +352,32 @@
     (release-all! rt acquired))
 
   (define (record! items state error)
-    (evidence-store-put! (runtime-state-op-evidence rt)
-                         operation-id
-                         (bench-operation-evidence operation-id
-                                                   target-id
-                                                   operation
-                                                   normalized
-                                                   (now-millis)
-                                                   (evidence-bound-items items)))
+    (define evidence
+      (bench-operation-evidence operation-id
+                                target-id
+                                operation
+                                normalized
+                                (now-millis)
+                                (evidence-bound-items items)))
+    (evidence-store-put! (runtime-state-op-evidence rt) operation-id evidence)
     (define completed-at (now-millis))
+    (define record
+      (bench-operation-record operation-id
+                              target-id
+                              operation
+                              normalized
+                              started-at
+                              completed-at
+                              (duration-ms-between started-at completed-at)
+                              (active-exec-deadline-at-millis active)
+                              state
+                              error))
     (history-push! (runtime-state-operation-history rt)
-                   (bench-operation-record operation-id
-                                           target-id
-                                           operation
-                                           normalized
-                                           started-at
-                                           completed-at
-                                           (duration-ms-between started-at completed-at)
-                                           (active-exec-deadline-at-millis active)
-                                           state
-                                           error)
-                   operation-history-capacity))
+                   record
+                   operation-history-capacity)
+    (define store (unbox (runtime-state-store-box rt)))
+    (when store
+      (persist-operation! store record evidence)))
 
   (define (deadline-path)
     (record!
@@ -631,3 +642,89 @@
        (when (> remaining 0)
          (sync/timeout (/ (min 25 remaining) 1000.0) (or ct never-evt)))
        (loop)])))
+
+;; ----------------------------------------------------------------------------
+;; Persistent store wiring (selected evidence/artifacts across restarts)
+;; ----------------------------------------------------------------------------
+
+(define (set-runtime-store! rt store)
+  (set-box! (runtime-state-store-box rt) store))
+
+(define (entry-item->struct item)
+  (bench-evidence-item
+   (hash-ref item 'kind "")
+   (hash-ref item 'summary "")
+   (let ([text (hash-ref item 'text 'null)]) (if (eq? text 'null) #f text))
+   (hash-ref item 'metadata (hasheq))))
+
+(define (seed-persisted-operations! rt entries)
+  (define records
+    (for/list ([e (in-list entries)])
+      (bench-operation-record
+       (hash-ref e 'id "")
+       (hash-ref e 'targetId "")
+       (hash-ref e 'operation "")
+       (hash-ref e 'resourceIds '())
+       (hash-ref e 'startedAtMillis 0)
+       (hash-ref e 'completedAtMillis 0)
+       (hash-ref e 'durationMs 0)
+       (let ([d (hash-ref e 'deadlineAtMillis 'null)]) (if (eq? d 'null) #f d))
+       (hash-ref e 'state "")
+       (let ([err (hash-ref e 'error 'null)]) (if (eq? err 'null) #f err)))))
+  (define evidences
+    (for/list ([e (in-list entries)])
+      (bench-operation-evidence
+       (hash-ref e 'id "")
+       (hash-ref e 'targetId "")
+       (hash-ref e 'operation "")
+       (hash-ref e 'resourceIds '())
+       (hash-ref e 'completedAtMillis 0)
+       (map entry-item->struct (hash-ref e 'items '())))))
+  (for ([rec (in-list records)]
+        [ev (in-list evidences)])
+    (evidence-store-put! (runtime-state-op-evidence rt)
+                         (bench-operation-record-id rec)
+                         ev))
+  (define capped
+    (let* ([merged (append records (unbox (runtime-state-operation-history rt)))]
+           [n (length merged)])
+      (if (> n operation-history-capacity)
+          (list-tail merged (- n operation-history-capacity))
+          merged)))
+  (set-box! (runtime-state-operation-history rt) capped))
+
+(define (seed-persisted-observations! rt entries)
+  (define records
+    (for/list ([e (in-list entries)])
+      (bench-observation-record
+       (hash-ref e 'id "")
+       (hash-ref e 'targetId "")
+       (hash-ref e 'observation "")
+       (hash-ref e 'resourceIds '())
+       (hash-ref e 'startedAtMillis 0)
+       (hash-ref e 'completedAtMillis 0)
+       (hash-ref e 'durationMs 0)
+       (let ([d (hash-ref e 'deadlineAtMillis 'null)]) (if (eq? d 'null) #f d))
+       (hash-ref e 'state "")
+       (let ([err (hash-ref e 'error 'null)]) (if (eq? err 'null) #f err)))))
+  (define evidences
+    (for/list ([e (in-list entries)])
+      (bench-observation-evidence
+       (hash-ref e 'id "")
+       (hash-ref e 'targetId "")
+       (hash-ref e 'observation "")
+       (hash-ref e 'resourceIds '())
+       (hash-ref e 'completedAtMillis 0)
+       (map entry-item->struct (hash-ref e 'items '())))))
+  (for ([rec (in-list records)]
+        [ev (in-list evidences)])
+    (evidence-store-put! (runtime-state-obs-evidence rt)
+                         (bench-observation-record-id rec)
+                         ev))
+  (define capped
+    (let* ([merged (append records (unbox (runtime-state-observation-history rt)))]
+           [n (length merged)])
+      (if (> n observation-history-capacity)
+          (list-tail merged (- n observation-history-capacity))
+          merged)))
+  (set-box! (runtime-state-observation-history rt) capped))
