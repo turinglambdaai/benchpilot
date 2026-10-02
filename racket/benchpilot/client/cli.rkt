@@ -847,6 +847,79 @@
       (call "POST" "/doip/discover" (hasheq) (hasheq 'windowMs (args-int-opt args 'window-ms)))
       compact)
      (if (> (length (hash-ref (unbox last-printed-box) 'vehicles '())) 0) 0 1)]
+    [(can)
+     (case subcommand
+       [(send)
+        (print-result
+         (call "POST" "/can/send" (target-query)
+               (hasheq 'resource (args-get args 'resource)
+                       'frameId (or (args-hex-opt args 'id)
+                                    (raise-validation "Missing --id (frame id, e.g. 0x123)."))
+                       'extended (if (args-flag args 'extended) #t 'null)
+                       'dataHex (require-positional 2 "data hex")))
+         compact)
+        0]
+       [(capture)
+        (case (string->symbol (string-downcase (or (args-positional args 2) "")))
+          [(start)
+           (print-result
+            (call "POST" "/can/capture/start"
+                  (target-query)
+                  (hasheq 'resource (args-get args 'resource)
+                          'capacity (args-int-opt args 'capacity)))
+            compact)
+           0]
+          [(stop)
+           (print-result
+            (call "POST" "/can/capture/stop" (hasheq)
+                  (hasheq 'captureId (require-positional 3 "capture id")))
+            compact)
+           0]
+          [else (raise-validation (format "Unknown command: can capture ~a" (args-positional args 2)))])]
+       [(frames)
+        (print-result
+         (call "GET" "/can/frames"
+               (hasheq 'captureId (require-positional 2 "capture id")
+                       'limit (or (args-int-opt args 'limit) 256)))
+         compact)
+        0]
+       [(decode)
+        (print-result
+         (call "POST" "/can/decode" (hasheq)
+               (hasheq 'captureId (require-positional 2 "capture id")
+                       'dbcPath (args-get args 'dbc)
+                       'frameId (or (args-hex-opt args 'id)
+                                    (raise-validation "Missing --id (frame id)."))
+                       'limit (or (args-int-opt args 'limit) 64)))
+         compact)
+        0]
+       [else (raise-validation (format "Unknown command: can ~a" subcommand))])]
+    [(lease)
+     (case subcommand
+       [(acquire)
+        (print-result
+         (call "POST" "/lease/acquire" (hasheq)
+               (hasheq 'target (require-positional 2 "target id")
+                       'ttlSeconds (or (args-int-opt args 'ttl) 300)))
+         compact)
+        0]
+       [(renew)
+        (print-result
+         (call "POST" "/lease/renew" (hasheq)
+               (hasheq 'leaseId (require-positional 2 "lease id")
+                       'ttlSeconds (or (args-int-opt args 'ttl) 300)))
+         compact)
+        0]
+       [(release)
+        (print-result
+         (call "POST" "/lease/release" (hasheq)
+               (hasheq 'leaseId (require-positional 2 "lease id")))
+         compact)
+        0]
+       [(list)
+        (print-result (call "GET" "/lease/list" (hasheq)) compact)
+        0]
+       [else (raise-validation (format "Unknown command: lease ~a" subcommand))])]
     [(store)
      (case subcommand
        [(evidence)
@@ -963,6 +1036,12 @@ Usage:
                                                [--target ID] [--json] [--endpoint URL]
   benchpilot uds dtc read                      [--mask XX] [--target ID] [--json]
   benchpilot uds dtc clear                     [--group XXXXXX] [--target ID] [--json]
+  benchpilot can send <data-hex> [--id 0x123] [--extended] [--resource ID]
+  benchpilot can capture start|stop <capture-id> [--resource ID] [--capacity N]
+  benchpilot can frames <capture-id> [--limit N] [--json]
+  benchpilot can decode <capture-id> --dbc FILE --id 0x123 [--limit N] [--json]
+  benchpilot lease acquire|renew|release <target-or-id> [--ttl SEC] [--json]
+  benchpilot lease list                        [--json]
   benchpilot store evidence                    [--limit N] [--json]
   benchpilot store observations                [--limit N] [--json]
   benchpilot store artifacts                   [--json]

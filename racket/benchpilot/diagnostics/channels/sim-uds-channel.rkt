@@ -18,6 +18,7 @@
          benchpilot/diagnostics/flash/engine
          benchpilot/diagnostics/isotp/codec
          benchpilot/diagnostics/isotp/endpoint
+         benchpilot/diagnostics/can/capture
          benchpilot/diagnostics/transport/can-bus
          benchpilot/diagnostics/transport/pcan
          benchpilot/diagnostics/transport/socketcan
@@ -715,6 +716,9 @@
 ;; ----------------------------------------------------------------------------
 
 (struct sim-diagnostics-driver (channel)
+  #:methods gen:diag-bus-provider
+  [(define (diag-channel-bus d) #f)
+   (define (diag-channel-bus-available? d) #f)]
   #:methods gen:diag-channel
   [(define (diag-transport d)
      (sim-channel-transport (sim-diagnostics-driver-channel d)))
@@ -755,6 +759,10 @@
 ;; ----------------------------------------------------------------------------
 
 (struct can-diagnostics-driver (channel)
+  #:methods gen:diag-bus-provider
+  [(define (diag-channel-bus d)
+     (can-uds-channel-bus-bus (can-diagnostics-driver-channel d)))
+   (define (diag-channel-bus-available? d) #t)]
   #:methods gen:diag-channel
   [(define (diag-transport d)
      (channel-transport (can-diagnostics-driver-channel d)))

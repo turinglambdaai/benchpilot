@@ -255,7 +255,7 @@ JSON
                      #f
                      (hash "r" (bench-resource "x" '("power") (hash)))
                      (hash "a" (bench-target "A" #f (hash "power" "r")))
-                     (bench-safety #f #f #f #f)
+                     (bench-safety #f #f #f #f #f)
                      #f
                      #f
                      #f
@@ -279,7 +279,7 @@ JSON
                      "a"
                      (hash "r" (bench-resource "x" '("power") (hash)))
                      (hash "a" (bench-target "A" #f (hash "power" "ghost" "serial" "r")))
-                     (bench-safety #f #f #f #f)
+                     (bench-safety #f #f #f #f #f)
                      #f
                      #f
                      #f

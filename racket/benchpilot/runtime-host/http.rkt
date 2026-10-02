@@ -20,6 +20,7 @@
          query-ref
          query-int
          query-int-opt
+         body-ref
          body-int
          body-int-opt
          body-real

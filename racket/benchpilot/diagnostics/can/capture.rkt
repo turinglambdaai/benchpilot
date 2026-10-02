@@ -13,10 +13,18 @@
          racket/list
          racket/string)
 
-(require benchpilot/core/contracts
+(require racket/generic
+
+         benchpilot/core/contracts
          benchpilot/core/persist
          benchpilot/core/runtime-state
          benchpilot/diagnostics/isotp/codec)
+
+;; A diagnostics channel can expose its underlying bus for capture/transmit
+;; when one exists (real CAN); simulated in-process channels do not.
+(define-generics diag-bus-provider
+  (diag-channel-bus diag-bus-provider)
+  (diag-channel-bus-available? diag-bus-provider))
 
 (provide (struct-out capture-session)
          make-capture-session
@@ -31,7 +39,11 @@
          dbc-messages
          dbc-decode-frame
          dbc-encode-signals
-         can-frame-emit-json)
+         can-frame-emit-json
+         gen:diag-bus-provider
+         diag-bus-provider?
+         diag-channel-bus
+         diag-channel-bus-available?)
 
 ;; ----------------------------------------------------------------------------
 ;; Capture sessions

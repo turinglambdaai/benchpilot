@@ -66,6 +66,7 @@
          driver-create-runtime
          ;; runtime object: state + registry
          (struct-out bench-runtime)
+         (struct-out target-ref)
          make-bench-runtime
          runtime-target
          runtime-preflight

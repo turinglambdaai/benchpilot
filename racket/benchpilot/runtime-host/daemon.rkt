@@ -17,10 +17,14 @@
          racket/tcp
          net/base64)
 
-(require benchpilot/core/hashing)
+(require benchpilot/core/hashing
+         benchpilot/diagnostics/can/capture
+         benchpilot/diagnostics/isotp/codec
+         benchpilot/diagnostics/transport/can-bus)
 
 (require benchpilot/core/bench-runtime
          benchpilot/core/contracts
+         benchpilot/core/leases
          benchpilot/core/persist
          benchpilot/core/profile
          benchpilot/core/runtime-state
@@ -146,7 +150,15 @@
 (define (ok-result v)
   (cons 200 (api->jsexpr v)))
 
+;; Routes that return plain jsexpr (store/lease/can surfaces).
+(struct raw-response (payload) #:transparent)
+
+(define (raw-result v)
+  (raw-response v))
+
 (define (execute proc)
+  (define (finish r)
+    (cons 200 (if (raw-response? r) (raw-response-payload r) (api->jsexpr r))))
   (with-handlers
       ([exn:benchpilot:validation?
         (lambda (e)
@@ -186,7 +198,7 @@
        [exn:fail? (lambda (e)
                     (cons 500
                           (api->jsexpr (api-error #f "internal" (exn-message e) #f #f #f #f #f))))])
-    (ok-result (proc))))
+    (finish (proc))))
 
 (define (hex-up*4 n)
   (string-upcase (~r n #:base 16 #:min-width 4 #:pad-string "0")))
@@ -257,6 +269,11 @@
     (seed-persisted-observations! state (persist-load-recent store "observations.jsonl" 128)))
   (define lc (make-lifecycle))
   (define api-token (resolve-or-create-token))
+  ;; leasesRequired comes from the profile JSON (safety.leasesRequired);
+  ;; the parsed struct predates it, so read the raw safety object.
+  (define leases
+    (make-lease-registry (and store (persist-store-path store))
+                         (bench-safety-leases-required (bench-profile-safety profile))))
 
   (daemon-log log-file-box
               (format "BenchPilot Runtime ~a listening on http://~a:~a. Profile: ~a."
@@ -286,8 +303,9 @@
                 (loop)))
             (exit 0)))
 
+  (define capture-sessions (make-hash))
   (define dispatch
-    (make-dispatcher rt state lc store
+    (make-dispatcher rt state lc store leases capture-sessions api-token
                      (lambda () (semaphore-post shutdown-requested))))
 
   (http-serve
@@ -337,7 +355,7 @@
 ;; over the request's query/body. Returns #f for unknown routes.
 ;; ----------------------------------------------------------------------------
 
-(define (make-dispatcher rt state lc store begin-shutdown!)
+(define (make-dispatcher rt state lc store leases capture-sessions api-token begin-shutdown!)
   (define (target* query)
     (runtime-target rt (query-ref query "target")))
   (lambda (method api-path query body-json)
@@ -549,18 +567,120 @@
                                           (hex-up*4 (doip-vehicle-identity-logical-address identity)))
                                   (doip-vehicle-identity-ip-address identity)))
           #f))]
+      [(match? "POST" "/lease/acquire")
+       (lambda ()
+         (define target (body-string body-json 'target))
+         (define ttl (body-int body-json 'ttlSeconds 300))
+         (define lease (lease-acquire! leases target api-token ttl))
+         (audit-append! leases "lease.acquired"
+                        (hasheq 'target target 'ttlSeconds ttl))
+         (raw-result (hasheq 'ok #t
+                 'leaseId (bench-lease-id lease)
+                 'targetId (bench-lease-target-id lease)
+                 'expiresAtUtc (or (utc-iso-millis (bench-lease-expires-at-millis lease)) 'null))))]
+      [(match? "POST" "/lease/renew")
+       (lambda ()
+         (define lease (lease-renew! leases (body-string body-json 'leaseId)
+                                     api-token (body-int body-json 'ttlSeconds 300)))
+         (raw-result (hasheq 'ok #t 'leaseId (bench-lease-id lease)
+                             'expiresAtUtc (or (utc-iso-millis (bench-lease-expires-at-millis lease)) 'null))))]
+      [(match? "POST" "/lease/release")
+       (lambda ()
+         (define released (lease-release! leases (body-string body-json 'leaseId) api-token))
+         (audit-append! leases "lease.released"
+                        (hasheq 'leaseId (body-string body-json 'leaseId)))
+         (raw-result (hasheq 'ok released)))]
+      [(match? "GET" "/lease/list")
+       (lambda () (raw-result (lease-registry->jsexpr leases)))]
+      [(match? "POST" "/can/capture/start")
+       (lambda ()
+         (define t (target* query))
+         (define resource-id
+           (or (body-string-opt body-json 'resource)
+               (ci-ref (target-ref-bindings t) "diagnostics")
+               (raise-validation "Target has no diagnostics binding to capture.")))
+         (define instance (registry-instance rt resource-id))
+         (unless (diag-channel? instance)
+           (raise-validation (format "Resource '~a' is not a diagnostics channel." resource-id)))
+         (define bus (diag-channel-bus instance))
+         (unless bus
+           (raise-validation "This diagnostics channel exposes no capturable bus (simulated channels do not)."))
+         (define session
+           (make-capture-session (format "cap-~a" (now-millis)) (target-ref-id t)
+                                 resource-id bus (body-int body-json 'capacity 4096)))
+         (can-bus-open! bus)
+         (can-bus-on-frame! bus (lambda (frame) (capture-session-record! session frame)))
+         (hash-set! capture-sessions (capture-session-id session) session)
+         (raw-result (hasheq 'ok #t 'captureId (capture-session-id session)
+                             'resourceId resource-id 'capacity (capture-session-capacity session))))]
+      [(match? "POST" "/can/capture/stop")
+       (lambda ()
+         (define id (body-string body-json 'captureId))
+         (define session (hash-ref capture-sessions id #f))
+         (unless session
+           (raise (make-target-not-found-error (format "Capture '~a' was not found." id))))
+         (stop-capture! session)
+         (define frames (capture-session-frames session))
+         (raw-result (hasheq 'ok #t 'captureId id 'frames (length frames))))]
+      [(match? "GET" "/can/frames")
+       (lambda ()
+         (define id (query-ref query "captureId"))
+         (define session (hash-ref capture-sessions id #f))
+         (unless session
+           (raise (make-target-not-found-error (format "Capture '~a' was not found." id))))
+         (raw-result (hasheq 'ok #t
+                             'captureId id
+                             'frames (capture-session-frames-json
+                                      session (query-int query "limit" 256)))))]
+      [(match? "POST" "/can/decode")
+       (lambda ()
+         (define id (body-string body-json 'captureId))
+         (define session (hash-ref capture-sessions id #f))
+         (unless session
+           (raise (make-target-not-found-error (format "Capture '~a' was not found." id))))
+         (define db (parse-dbc (file->string (body-string body-json 'dbcPath))))
+         (define frame-id (body-int body-json 'frameId))
+         (define limit (body-int body-json 'limit 64))
+         (define rows
+           (for/list ([entry (in-list (take (capture-session-frames session)
+                                            (min limit
+                                                (length (capture-session-frames session)))))]
+                      #:when (= (can-frame-id (cdr entry)) frame-id))
+             (hasheq 't (car (can-frame-emit-json (car entry) (cdr entry)) 't)
+                     'signals (dbc-decode-frame db frame-id
+                                                (list->bytes (can-frame-data (cdr entry)))))))
+         (raw-result (hasheq 'ok #t 'captureId id 'frames rows)))]
+      [(match? "POST" "/can/send")
+       (lambda ()
+         (define t (target* query))
+         (define resource-id
+           (or (body-string-opt body-json 'resource)
+               (ci-ref (target-ref-bindings t) "diagnostics")
+               (raise-validation "Target has no diagnostics binding.")))
+         (define instance (registry-instance rt resource-id))
+         (unless (diag-channel? instance)
+           (raise-validation (format "Resource '~a' is not a diagnostics channel." resource-id)))
+         (define bus (diag-channel-bus instance))
+         (unless bus
+           (raise-validation "This diagnostics channel exposes no sendable bus."))
+         (can-bus-open! bus)
+         (can-bus-send! bus
+                        (can-frame (body-int body-json 'frameId)
+                                   (eq? (body-ref body-json 'extended) #t)
+                                   (hex-parse (body-string body-json 'dataHex))))
+         (raw-result (hasheq 'ok #t)))]
       [(match? "GET" "/store/operations")
        (lambda ()
          (unless store (raise-validation "The persistent store is disabled."))
-         (hasheq 'kind "operation-list"
-                 'entries (persist-load-recent store "operations.jsonl"
-                                               (query-int query "limit" 50))))]
+         (raw-result (hasheq 'kind "operation-list"
+                             'entries (persist-load-recent store "operations.jsonl"
+                                                           (query-int query "limit" 50)))))]
       [(match? "GET" "/store/observations")
        (lambda ()
          (unless store (raise-validation "The persistent store is disabled."))
-         (hasheq 'kind "observation-list"
-                 'entries (persist-load-recent store "observations.jsonl"
-                                               (query-int query "limit" 50))))]
+         (raw-result (hasheq 'kind "observation-list"
+                             'entries (persist-load-recent store "observations.jsonl"
+                                                           (query-int query "limit" 50)))))]
       [(match? "GET" "/store/artifacts")
        (lambda ()
          (unless store (raise-validation "The persistent store is disabled."))
@@ -583,12 +703,12 @@
            (raise (make-target-not-found-error
                    (format "Artifact '~a' was not found." id))))
          (define content (file->bytes path))
-         (hasheq 'kind "artifact"
-                 'artifactId id
-                 'bytes (bytes-length content)
-                 'sha256 (or (sha256-hex path) "")
-                 'contentBase64
-                 (bytes->string/latin-1 (base64-encode content ""))))]
+         (raw-result (hasheq 'kind "artifact"
+                             'artifactId id
+                             'bytes (bytes-length content)
+                             'sha256 (or (sha256-hex path) "")
+                             'contentBase64
+                             (bytes->string/latin-1 (base64-encode content "")))))]
       [(match? "POST" "/shutdown")
        (lambda ()
          ;; Token-authenticated like every other endpoint: the graceful

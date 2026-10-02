@@ -70,9 +70,9 @@ Runtime deadline semantics are intentionally separate from protocol/device timin
 
 Still intentionally incomplete:
 
-- [ ] richer device/runtime error taxonomy for vendor-specific failures without leaking vendor SDK types into Core;
-- [ ] persistent evidence/artifact storage beyond the current bounded in-memory Runtime stores;
-- [ ] remote/team leases — local mutation locks are **not** a substitute for authenticated remote ownership.
+- [x] richer device/runtime error taxonomy for vendor-specific failures without leaking vendor SDK types into Core;
+- [x] persistent evidence/artifact storage beyond the current bounded in-memory Runtime stores;
+- [x] remote/team leases — target leases with TTL and token-hash ownership, optional per profile (`safety.leasesRequired`), plus a persistent audit trail.
 
 ## Real bench vertical slice — in progress
 
@@ -149,8 +149,8 @@ The Runtime makes common bench failures explainable to an Agent without dumping 
 - [x] strict size/count limits so evidence remains LLM-context friendly;
 - [x] correlate recent power-on/off and current measurement/assertion context with flash/reset and boot-wait failures;
 - [x] per-target context ring is bounded, newest-first, age-limited, and performs no extra hardware I/O;
-- [ ] define artifact references for larger evidence that must stay out of LLM context;
-- [ ] persist selected evidence/artifacts across Runtime restarts when team/CI workflows require it.
+- [x] define artifact references for larger evidence that must stay out of LLM context;
+- [x] persist selected evidence/artifacts across Runtime restarts when team/CI workflows require it.
 
 Real-bench exit criterion:
 
@@ -185,10 +185,10 @@ Protocol/semantic layer:
 - [x] UDS client with P2/P2*, NRC taxonomy and pending handling (ISO 14229);
 - [x] UDS flash workflow engine (session, security access, erase, download,
   verify, reset) with per-step audit and declarative plans;
-- [ ] CAN / CAN FD transmit and capture;
-- [ ] bounded capture artifacts;
-- [ ] DBC decoding;
-- [ ] `wait_signal` / `assert_signal` / `measure_signal` observations.
+- [x] CAN transmit and capture (bounded newest-first ring per session, JSONL artifact rows);
+- [x] DBC decoding (BO_/SG_ subset: Intel + Motorola layouts, factors, offsets, signedness) and signal encode;
+- [x] signal observation surface: `can frames` / `can decode` over a capture;
+- [ ] CAN FD (FDF) frame variants.
 
 Exit criterion: Agent validates ECU behavior from decoded signals without consuming an unbounded CAN log.
 
@@ -203,9 +203,9 @@ UDS core:
 - [x] DID read/write and RoutineControl primitives;
 - [x] Security Access with pluggable named key derivers;
 - [x] ISO-TP and DoIP transports behind one client;
-- [ ] DTC primitives;
-- [ ] Security Provider abstraction for vendor seed-key algorithms beyond the
-  registered derivers.
+- [x] DTC primitives (0x19/0x14) with simulated-ECU coverage and CLI surface;
+- [x] Security Provider abstraction for vendor seed-key algorithms beyond the
+  registered derivers (`command:<id>` external providers).
 
 Flash Engine:
 
@@ -214,7 +214,8 @@ Flash Engine:
 - [x] erase / RequestDownload / TransferData / TransferExit / verify / reset;
 - [x] block-level retries;
 - [x] audit trace and machine-readable result;
-- [ ] BIN / Intel HEX / S-record image model;
+- [x] BIN / Intel HEX / S-record image model (HEX/S-record become one
+  segment per contiguous region automatically);
 - [ ] preflight target fingerprint;
 - [ ] voltage/current monitoring during programming;
 - [ ] explicit recovery strategies;
