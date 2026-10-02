@@ -16,6 +16,7 @@
          benchpilot/core/profile
          racket/file
          racket/path
+         benchpilot/client/html-report
          benchpilot/client/updater
          benchpilot/diagnostics/flash/engine
          benchpilot/diagnostics/uds/protocol
@@ -798,6 +799,42 @@
       (call "POST" "/doip/discover" (hasheq) (hasheq 'windowMs (args-int-opt args 'window-ms)))
       compact)
      (if (> (length (hash-ref (unbox last-printed-box) 'vehicles '())) 0) 0 1)]
+    [(report)
+     ;; --format html: one static evidence report for the bench session.
+     (define results (make-hasheq))
+     (define (fetch! key method path query)
+       (define-values (st body) (api-call host port method path query #f))
+       (when (< st 300) (hash-set! results key body)))
+     (fetch! 'status "GET" "/status" (hasheq))
+     (fetch! 'validate "POST" "/validate"
+             (let ([t (args-get args 'target)])
+               (if t (hasheq 'target t) (hasheq))))
+     (fetch! 'operations "GET" "/operations/history" (hasheq 'limit 50))
+     (fetch! 'observations "GET" "/observations/history" (hasheq 'limit 50))
+     (define op-entries
+       (hash-ref (hash-ref results 'operations (hasheq)) 'operations '()))
+     (define obs-entries
+       (hash-ref (hash-ref results 'observations (hasheq)) 'observations '()))
+     (define latest-op
+       (findf (lambda (op) (equal? (hash-ref op 'state) "completed"))
+              op-entries))
+     (when latest-op
+       (fetch! 'operation-evidence "GET" "/operations/evidence"
+               (hasheq 'operationId (hash-ref latest-op 'id))))
+     (define latest-obs
+       (findf (lambda (op) (equal? (hash-ref op 'state) "completed"))
+              obs-entries))
+     (when latest-obs
+       (fetch! 'observation-evidence "GET" "/observations/evidence"
+               (hasheq 'observationId (hash-ref latest-obs 'id))))
+     (define out-path (or (args-get args 'out) "benchpilot-report.html"))
+     (display-to-file (build-html-report results) out-path #:exists 'replace)
+     (print-result (hasheq 'ok #t
+                           'format "html"
+                           'output out-path
+                           'runtimeVersion benchpilot-version)
+                   compact)
+     0]
     [(update)
      (define result (if (args-get args 'check) (update-check) (update-run)))
      (print-result result compact)
@@ -839,6 +876,8 @@ Usage:
   benchpilot observe history                   [--limit N] [--json] [--endpoint URL]
   benchpilot observe evidence <observation-id> [--json] [--endpoint URL]
   benchpilot observe cancel <observation-id>   [--json] [--endpoint URL]
+  benchpilot report                            [--format html] [--out PATH]
+                                               [--target ID] [--json] [--endpoint URL]
 
   benchpilot preflight              [--target ID] [--json]
   benchpilot bench validate         [--target ID] [--json]
