@@ -31,6 +31,9 @@
          uds-transfer-data
          uds-request-transfer-exit
          uds-ecu-reset
+         uds-read-dtcs
+         uds-clear-dtcs
+         parse-dtc-response
          uds-address-length
          make-uds-client
          uds-send
@@ -148,6 +151,46 @@
 
 (define (uds-tester-present [response-required #t])
   (list sid-tester-present (if response-required #x00 #x80)))
+
+(define sid-read-dtc-information #x19)
+(define sid-clear-diagnostic-information #x14)
+
+(define (uds-read-dtcs [status-mask #xFF])
+  (list sid-read-dtc-information #x02 status-mask))
+
+(define (uds-clear-dtcs [group #xFFFFFF])
+  (list sid-clear-diagnostic-information
+        (bitwise-and (arithmetic-shift group -16) #xFF)
+        (bitwise-and (arithmetic-shift group -8) #xFF)
+        (bitwise-and group #xFF)))
+
+;; 59 02 <availability> (<dtc-hi> <dtc-mid> <dtc-lo> <status>)*
+(define (parse-dtc-response payload)
+  ;; payload = positive response bytes after the SID: [02, avail, records...]
+  (if (or (< (length payload) 2) (not (= (first payload) #x02)))
+      'unsupported
+      (let ([available (second payload)]
+            [rest (list-tail payload (min 2 (length payload)))])
+        (hasheq 'availableMask available
+                'dtcs
+                (let build ([rest rest])
+                  (if (< (length rest) 4)
+                      '()
+                      (cons (hasheq 'dtc
+                                    (format "0x~a"
+                                            (string-upcase
+                                             (~r (+ (* (first rest) 65536)
+                                                    (* (second rest) 256)
+                                                    (third rest))
+                                                 #:base 16
+                                                 #:min-width 6
+                                                 #:pad-string "0")))
+                                    'status (format "0x~a"
+                                                    (~r (fourth rest)
+                                                        #:base 16
+                                                        #:min-width 2
+                                                        #:pad-string "0")))
+                            (build (list-tail rest 4)))))))))
 
 (define (uds-read-did did)
   (list sid-read-data-by-identifier

@@ -98,7 +98,8 @@
                  last-image-box
                  erased-box
                  erase-count-box
-                 verify-count-box)
+                 verify-count-box
+                 dtc-box)
   #:transparent)
 
 (struct uds-server-response (response delay-ms) #:transparent)
@@ -126,7 +127,8 @@
                  (box '())
                  (box #f)
                  (box 0)
-                 (box 0)))
+                 (box 0)
+                 (box (list (hasheq 'dtc #x010870 'status #x2F)))))
 
 (define (negative sid nrc)
   (uds-server-response (list #x7F sid nrc) 0))
@@ -178,7 +180,33 @@
        [(#x36) (handle-transfer-data! p request)]
        [(#x37) (handle-transfer-exit! p request)]
        [(#x11) (handle-ecu-reset! p request)]
+       [(#x19) (handle-read-dtc! p request)]
+       [(#x14) (handle-clear-dtc! p request)]
        [else (negative (car request) #x11)])]))
+
+(define (handle-read-dtc! p request)
+  (if (not (= (length request) 3))
+      (negative (car request) #x13)
+      (let ([records
+             (with-mutex* (uds-processor-mutex p)
+                          (lambda ()
+                            (for/list ([entry (in-list (unbox (uds-processor-dtc-box p)))])
+                              (append (list (bitwise-and (arithmetic-shift (hash-ref entry 'dtc) -16) #xFF)
+                                            (bitwise-and (arithmetic-shift (hash-ref entry 'dtc) -8) #xFF)
+                                            (bitwise-and (hash-ref entry 'dtc) #xFF))
+                                      (list (hash-ref entry 'status))))))])
+        (uds-server-response
+         (append (list #x59 (second request) #x2F)
+                 (apply append records))
+         0))))
+
+(define (handle-clear-dtc! p request)
+  (if (not (= (length request) 4))
+      (negative (car request) #x13)
+      (begin
+        (with-mutex* (uds-processor-mutex p)
+                     (lambda () (set-box! (uds-processor-dtc-box p) '())))
+        (uds-server-response (list #x54) 0))))
 
 (define (handle-session! p request)
   (define options (uds-processor-options p))

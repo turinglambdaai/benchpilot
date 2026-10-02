@@ -557,6 +557,11 @@
   (define (require-positional index label)
     (or (args-positional args index) (raise-validation (format "Missing required ~a." label))))
 
+  (define (hex-string->bytes hex)
+    (list->bytes (hex-parse hex)))
+  (define (bytes->hex-string bs)
+    (bytes->hex (bytes->list bs)))
+
   (define (maybe-did text)
     (define n (parse-hex-or-dec text))
     (unless (and n (>= n 0) (<= n #xFFFF))
@@ -792,6 +797,48 @@
                                     (args-get args 'confirm-target)))
                       compact)
         0]
+       [(dtc)
+        (define action
+          (string->symbol (string-downcase
+                           (or (args-positional args 2) ""))))
+        (case action
+          [(read)
+           (define mask (args-hex-opt args 'mask))
+           (define request (uds-read-dtcs (or mask #xFF)))
+           (define result
+             (call "POST" "/uds/request"
+                   (target-query)
+                   (hasheq 'requestHex (bytes->hex-string (list->bytes request)))))
+           (unless (hash-ref result 'positive #f)
+             (print-result result compact)
+             1)
+           ;; responseHex already excludes the SID.
+           (define payload (hex-string->bytes (hash-ref result 'responseHex "")))
+           (define parsed (parse-dtc-response (bytes->list payload)))
+           (define out
+             (if (eq? parsed 'unsupported)
+                 (hasheq 'ok #t 'positive #f 'error "ECU does not support DTC read (NRC or odd response).")
+                 (hasheq 'ok #t
+                         'positive #t
+                         'availableMask (format "0x~a" (~r (hash-ref parsed 'availableMask) #:base 16 #:min-width 2 #:pad-string "0"))
+                         'dtcs (hash-ref parsed 'dtcs '()))))
+           (print-result out compact)
+           0]
+          [(clear)
+           (define group (args-hex-opt args 'group))
+           (define request (uds-clear-dtcs (or group #xFFFFFF)))
+           (define result
+             (call "POST" "/uds/request"
+                   (target-query)
+                   (hasheq 'requestHex (bytes->hex-string (list->bytes request)))))
+           (if (not (hash-ref result 'positive #f))
+               (begin (print-result result compact) 1)
+               (let ()
+                 ;; ClearDiagnosticInformation answers with the bare 0x54
+                 ;; positive SID; responseHex is empty by design.
+                 (print-result (hasheq 'ok #t 'positive #t 'cleared #t) compact)
+                 0))]
+          [else (raise-validation (format "Unknown command: uds dtc ~a" action))])]
        [else (raise-validation (format "Unknown command: uds ~a" subcommand))])]
     [(doip)
      (unless (eq? subcommand (quote discover))
@@ -914,6 +961,8 @@ Usage:
   benchpilot observe cancel <observation-id>   [--json] [--endpoint URL]
   benchpilot report                            [--format html] [--out PATH]
                                                [--target ID] [--json] [--endpoint URL]
+  benchpilot uds dtc read                      [--mask XX] [--target ID] [--json]
+  benchpilot uds dtc clear                     [--group XXXXXX] [--target ID] [--json]
   benchpilot store evidence                    [--limit N] [--json]
   benchpilot store observations                [--limit N] [--json]
   benchpilot store artifacts                   [--json]
