@@ -138,6 +138,9 @@ jobs:
 
   release:
     needs: publish
+    # workflow_dispatch runs validate packaging only; a release is created
+    # from tag pushes alone.
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
