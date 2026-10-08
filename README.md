@@ -1,6 +1,16 @@
 # BenchPilot
 
-> **The hardware runtime for embedded coding agents — focused on ECU development.**
+**The hardware runtime for embedded coding agents — power, flash, observe, diagnose and validate real ECUs from one stateful interface.**
+Humans, CI jobs and AI coding agents share one resident runtime with a safety boundary; agents speak JSON natively over a versioned local API, CLI and MCP.
+
+**English**
+
+[![CI](https://github.com/turinglambdaai/benchpilot/actions/workflows/ci.yml/badge.svg)](https://github.com/turinglambdaai/benchpilot/actions/workflows/ci.yml)
+[![homepage](https://img.shields.io/badge/homepage-benchpilot.jrtx.site-2563eb)](https://benchpilot.jrtx.site/)
+[![release](https://img.shields.io/github/v/release/turinglambdaai/benchpilot)](https://github.com/turinglambdaai/benchpilot/releases/latest)
+![platform](https://img.shields.io/badge/platform-Windows_%7C_Linux_%7C_macOS-lightgrey)
+[![built with](https://img.shields.io/badge/built%20with-Racket-9F1D35)](https://racket-lang.org/)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 
 BenchPilot gives humans, CI jobs and AI coding agents one stateful interface to real embedded targets: power them, flash them, observe them, diagnose them and validate behavior.
 
@@ -12,7 +22,7 @@ Build -> Flash -> Run -> Observe -> Diagnose -> Fix
 
 BenchPilot is **not** a CANoe clone. It does not aim to reproduce full vehicle-network simulation, CAPL, ADAS simulation or hundreds of analysis windows. CAN/CAN FD, DBC, ISO-TP, UDS and DoIP are added when they help complete the ECU development loop.
 
-> Current status: **v0.5.1 — full diagnostics stack, self-updating**. UDS diagnostics and flashing over ISO-TP/CAN and DoIP, a built-in simulated ECU for hardware-free end-to-end runs, and SocketCAN/PCAN adapters. The resident Runtime, versioned local API, CLI and MCP adapter share one hardware state and safety boundary. Real `system-serial`, J-Link Commander and SCPI power drivers, non-destructive preflight/readiness checks, bounded operation/observation evidence, Runtime-owned execution deadlines and graceful Runtime shutdown are implemented. A per-user token guards the loopback API, the CLI starts and reuses the daemon automatically, and a black-box e2e suite runs the real processes on Windows/Linux CI. Release packages are attached to GitHub releases and `benchpilot update` keeps installs current. The next gate is validation against an actual ECU + J-Link + serial + bench supply, not adding more protocols.
+> Current status: **v0.6.0 — the Racket runtime at full contract parity.** UDS diagnostics and flashing over ISO-TP/CAN and DoIP, a built-in simulated ECU for hardware-free end-to-end runs, SocketCAN/PCAN adapters and system-serial/J-Link/SCPI power drivers behind one readiness gate. Persistent evidence/artifact storage, device error taxonomy, HEX/S-record image models, UDS DTC, security providers, CAN capture + DBC signal decoding, team leases with audit, and flash hardening (fingerprint gate, in-programming power guard, recovery strategies) are in. The next gate is physical validation against a real ECU + J-Link + serial + bench supply, not adding more protocols.
 
 ## Why BenchPilot?
 
