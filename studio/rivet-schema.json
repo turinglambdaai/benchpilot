@@ -1,0 +1,60 @@
+{
+  "device-rpcs": [],
+  "enums": [],
+  "events": [
+    {
+      "name": "notification",
+      "type": {
+        "kind": "scalar",
+        "name": "String"
+      }
+    }
+  ],
+  "format": "rivet-schema",
+  "format-version": 1,
+  "records": [],
+  "rpcs": [
+    {
+      "arguments": [
+        {
+          "name": "name",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        }
+      ],
+      "name": "greet",
+      "result": {
+        "kind": "scalar",
+        "name": "String"
+      }
+    },
+    {
+      "arguments": [
+        {
+          "name": "message",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        }
+      ],
+      "name": "notify",
+      "result": {
+        "kind": "scalar",
+        "name": "Void"
+      }
+    }
+  ],
+  "rvt-protocol": 1,
+  "states": [
+    {
+      "name": "counter",
+      "type": {
+        "kind": "scalar",
+        "name": "Int64"
+      }
+    }
+  ]
+}

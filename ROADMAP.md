@@ -2,7 +2,7 @@
 
 BenchPilot is developed as an **agent-native ECU development runtime**, not as a feature-for-feature CANoe replacement.
 
-> **2026-10-02 — v0.6.0:** the Racket port ([ADR 0002](docs/adr/0002-racket-port.md))
+> **2026-10-02 — v1.0.0:** the Racket port ([ADR 0002](docs/adr/0002-racket-port.md))
 > completed at full contract parity; the C#/.NET tree is retired. The current
 > gate is unchanged: physical bench validation and production-grade
 > evidence/artifact handling.

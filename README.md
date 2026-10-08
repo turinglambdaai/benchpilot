@@ -22,7 +22,7 @@ Build -> Flash -> Run -> Observe -> Diagnose -> Fix
 
 BenchPilot is **not** a CANoe clone. It does not aim to reproduce full vehicle-network simulation, CAPL, ADAS simulation or hundreds of analysis windows. CAN/CAN FD, DBC, ISO-TP, UDS and DoIP are added when they help complete the ECU development loop.
 
-> Current status: **v0.6.0 — the Racket runtime at full contract parity.** UDS diagnostics and flashing over ISO-TP/CAN and DoIP, a built-in simulated ECU for hardware-free end-to-end runs, SocketCAN/PCAN adapters and system-serial/J-Link/SCPI power drivers behind one readiness gate. Persistent evidence/artifact storage, device error taxonomy, HEX/S-record image models, UDS DTC, security providers, CAN capture + DBC signal decoding, team leases with audit, and flash hardening (fingerprint gate, in-programming power guard, recovery strategies) are in. The next gate is physical validation against a real ECU + J-Link + serial + bench supply, not adding more protocols.
+> Current status: **v1.0.0 — the Racket runtime at full contract parity.** UDS diagnostics and flashing over ISO-TP/CAN and DoIP, a built-in simulated ECU for hardware-free end-to-end runs, SocketCAN/PCAN adapters and system-serial/J-Link/SCPI power drivers behind one readiness gate. Persistent evidence/artifact storage, device error taxonomy, HEX/S-record image models, UDS DTC, security providers, CAN capture + DBC signal decoding, team leases with audit, and flash hardening (fingerprint gate, in-programming power guard, recovery strategies) are in. The next gate is physical validation against a real ECU + J-Link + serial + bench supply, not adding more protocols.
 
 ## Why BenchPilot?
 
@@ -479,10 +479,10 @@ See [ROADMAP.md](ROADMAP.md).
 
 ## Implementation language
 
-The Runtime is implemented in **Racket** (Racket CS) since v0.6.0
+The Runtime is implemented in **Racket** (Racket CS) since v1.0.0
 ([ADR 0002](docs/adr/0002-racket-port.md), which supersedes
 [ADR 0001](docs/adr/0001-runtime-language.md)). The C#/.NET tree of the
-0.5.x line was retired in v0.6.0 after the port reached full contract
+0.5.x line was retired in v1.0.0 after the port reached full contract
 parity: same frozen JSON API, same CLI exit codes, same E2E suite. GUI
 technology stays decoupled from the Runtime; any future Studio GUI would
 speak the same versioned local API rather than owning devices.

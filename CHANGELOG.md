@@ -2,7 +2,7 @@
 
 All notable changes to BenchPilot are documented here.
 
-## 0.6.0 - 2026-10-02
+## 1.0.0 - 2026-10-02
 
 The Racket port completes ([ADR 0002](docs/adr/0002-racket-port.md)); the
 C#/.NET tree of the 0.5.x line is removed and the release ships from the

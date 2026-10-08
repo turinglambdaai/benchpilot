@@ -19,7 +19,7 @@
     "name": "Bench <Inj> & Co",
     "schemaVersion": 1,
     "defaultTarget": "demo",
-    "runtimeVersion": "0.6.0",
+    "runtimeVersion": "1.0.0",
     "targets": [{"id": "demo", "name": "Demo ECU", "mcu": "simulated-mcu",
                  "capabilities": ["power", "serial"]}],
     "resources": [{"id": "sim.demo", "driver": "simulator",
