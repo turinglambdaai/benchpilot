@@ -3,14 +3,9 @@
 **The hardware runtime for embedded coding agents — power, flash, observe, diagnose and validate real ECUs from one stateful interface.**
 Humans, CI jobs and AI coding agents share one resident runtime with a safety boundary; agents speak JSON natively over a versioned local API, CLI and MCP.
 
-**English**
+[![CI](https://github.com/turinglambdaai/benchpilot/actions/workflows/ci.yml/badge.svg)](https://github.com/turinglambdaai/benchpilot/actions/workflows/ci.yml) [![release](https://img.shields.io/github/v/release/turinglambdaai/benchpilot)](https://github.com/turinglambdaai/benchpilot/releases/latest) ![platform](https://img.shields.io/badge/platform-Windows_%7C_Linux_%7C_macOS-lightgrey) [![built with](https://img.shields.io/badge/built%20with-Racket-9F1D35)](https://racket-lang.org/) [![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 
-[![CI](https://github.com/turinglambdaai/benchpilot/actions/workflows/ci.yml/badge.svg)](https://github.com/turinglambdaai/benchpilot/actions/workflows/ci.yml)
-[![homepage](https://img.shields.io/badge/homepage-benchpilot.jrtx.site-2563eb)](https://benchpilot.jrtx.site/)
-[![release](https://img.shields.io/github/v/release/turinglambdaai/benchpilot)](https://github.com/turinglambdaai/benchpilot/releases/latest)
-![platform](https://img.shields.io/badge/platform-Windows_%7C_Linux_%7C_macOS-lightgrey)
-[![built with](https://img.shields.io/badge/built%20with-Racket-9F1D35)](https://racket-lang.org/)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+**English** · [中文](README.zh-CN.md)
 
 BenchPilot gives humans, CI jobs and AI coding agents one stateful interface to real embedded targets: power them, flash them, observe them, diagnose them and validate behavior.
 
