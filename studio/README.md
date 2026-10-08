@@ -1,6 +1,19 @@
-# studio
+# BenchPilot Studio
 
-A first-party native desktop app powered by Racket and Rivet.
+A first-party native desktop app powered by Racket and Rivet. The GUI is a
+client over the resident BenchPilot runtime (benchpilotd): the shared
+Racket backend proxies the daemon's loopback HTTP API and adapts it to typed
+RVT1 records — status, operations, power, and flash control.
+
+## Backend tests
+
+```bash
+raco test tests/backend-server-test.rkt
+```
+
+Wire-level suite: runs a real RVT1 server against a fake daemon speaking the
+benchpilotd HTTP contract, and pins the JSON -> record adapters (field
+mapping, integer unit scaling, error surfacing).
 
 ## Start here
 

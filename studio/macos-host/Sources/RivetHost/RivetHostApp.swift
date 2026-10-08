@@ -12,7 +12,7 @@ struct RivetHostApp: App {
         WindowGroup(RivetGeneratedConfig.displayName) {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 520, minHeight: 360)
+                .frame(minWidth: 760, minHeight: 540)
                 .task { model.start() }
                 // URL schemes and file associations are declared from
                 // rivet.rktd during packaging. Keep activation handling in the
@@ -25,9 +25,12 @@ struct RivetHostApp: App {
 
 @MainActor
 final class AppModel: ObservableObject {
-    @Published var status = "Starting embedded Racket CS…"
-    @Published var count: Int64 = 0
     @Published var ready = false
+    @Published var statusText = "Starting embedded Racket CS…"
+    @Published var runtime: RuntimeStatus?
+    @Published var operations: [OperationSummary] = []
+    @Published var history: [OperationHistoryItem] = []
+    @Published var busy = false
 
     private var backend: EmbeddedRacketBackend?
 
@@ -45,37 +48,94 @@ final class AppModel: ObservableObject {
             Task.detached { [backend] in
                 do {
                     try backend.start()
-                    let api = RivetAPI(client: backend.client)
-                    let initialCount = try await api.getCounter()
                     await MainActor.run {
-                        self.count = initialCount
                         self.ready = true
-                        self.status = "Embedded Racket CS is ready"
+                        self.statusText = "Ready"
                     }
                 } catch {
                     await MainActor.run {
                         self.ready = false
-                        self.status = "Backend error: \(error)"
+                        self.statusText = "Backend error: \(error)"
                     }
                 }
             }
         } catch {
-            status = "Configuration error: \(error)"
+            statusText = "Configuration error: \(error)"
         }
     }
 
-    func increment() {
-        guard let backend, ready else { return }
-        let next = count + 1
+    private func api() -> RivetAPI? {
+        guard let backend else { return nil }
+        return RivetAPI(client: backend.client)
+    }
 
+    func refresh() async {
+        guard ready, let api = api() else { return }
+        do {
+            let status = try await api.status()
+            let active = try await api.list_operations()
+            let past = try await api.operation_history(limit: 25)
+            runtime = status
+            operations = active
+            history = past
+            statusText = "Connected"
+        } catch {
+            runtime = nil
+            operations = []
+            history = []
+            statusText = "\(error)"
+        }
+    }
+
+    private func perform(_ label: String, _ body: @escaping (RivetAPI) async throws -> Void) {
+        guard ready, let api = api(), !busy else { return }
+        busy = true
+        statusText = label
         Task {
             do {
-                let api = RivetAPI(client: backend.client)
-                count = try await api.setCounter(next)
+                try await body(api)
+                statusText = "Done"
             } catch {
-                status = "State error: \(error)"
+                statusText = "Error: \(error)"
             }
+            busy = false
+            await refresh()
         }
     }
 
+    func powerOn(_ target: TargetSummary, millivolts: Int64) {
+        perform("Powering on \(target.name)…") { api in
+            _ = try await api.power_on(target: target.id, voltage_millivolts: millivolts, settle_ms: 2000)
+        }
+    }
+
+    func powerOff(_ target: TargetSummary) {
+        perform("Powering off \(target.name)…") { api in
+            _ = try await api.power_off(target: target.id)
+        }
+    }
+
+    func emergencyOff(_ target: TargetSummary) {
+        perform("Emergency off \(target.name)…") { api in
+            _ = try await api.emergency_off(target: target.id)
+        }
+    }
+
+    func flashWrite(_ target: TargetSummary, firmware: String) {
+        perform("Flashing \(target.name)…") { api in
+            _ = try await api.flash_write(target: target.id, firmware: firmware, confirm_target: target.id)
+        }
+    }
+
+    func flashReset(_ target: TargetSummary) {
+        perform("Resetting \(target.name)…") { api in
+            _ = try await api.flash_reset(target: target.id, confirm_target: target.id)
+        }
+    }
+
+    func cancel(_ operation: OperationSummary) {
+        perform("Cancelling \(operation.id)…") { api in
+            _ = try await api.cancel_operation(operation_id: operation.id)
+        }
+    }
 }
