@@ -216,9 +216,15 @@ Flash Engine:
 - [x] audit trace and machine-readable result;
 - [x] BIN / Intel HEX / S-record image model (HEX/S-record become one
   segment per contiguous region automatically);
-- [ ] preflight target fingerprint;
-- [ ] voltage/current monitoring during programming;
-- [ ] explicit recovery strategies;
+- [x] preflight target fingerprint (FNV-1a over segment addresses + bytes;
+  plans may pin expectedFingerprint and mismatching images are rejected
+  before any driver call);
+- [x] voltage/current monitoring during programming (plan powerGuard:
+  {minMa, maxMa, pollMs} — out-of-band current powers off best-effort
+  and cancels the flash);
+- [x] explicit recovery strategies (plan onFail: retry |
+  resetAndRetry — best-effort ECU reset through the same channel, then
+  one retry);
 - [ ] visual workflow editor only after the typed model is stable.
 
 Exit criterion: the same flash definition can be executed by GUI, CLI, CI and Agent with identical safety behavior.
