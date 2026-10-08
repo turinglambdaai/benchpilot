@@ -26,6 +26,13 @@ exit codes and E2E suite).
 - Debian package now ships the full Racket distribution tree under
   `/opt/benchpilot` with thin `/usr/bin` wrappers; Homebrew formula and
   the installers follow the same layout.
+- Post-port feature batch: persistent evidence/artifact storage across
+  restarts, device error taxonomy, Intel HEX / S-record image models,
+  UDS DTC primitives (0x19/0x14), security providers
+  (`command:<id>` external algorithms), CAN capture + DBC signal
+  decode/encode, team leases with a persistent audit trail, and flash
+  hardening (fingerprint gate, in-programming power guard, recovery
+  strategies) — with `store` / `can` / `lease` CLI command families.
 
 ### Changed
 
