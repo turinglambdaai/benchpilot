@@ -548,6 +548,18 @@
                     (or (not plan-path) (string-blank? plan-path)))
            (raise-validation
             "address is required when no planPath is given (for example 0x08000000)."))
+         (define hardening
+           (build-flash-plan firmware plan-path
+                             (body-int-opt body-json 'address)
+                             (body-int-opt body-json 'maxBlockPayload)))
+         (audit-append! leases "flash.fingerprint"
+                        (hasheq 'fingerprint (flash-plan-fingerprint
+                                              (uds-flash-plan-segments
+                                               (uds-flash-hardening-plan hardening)))
+                                'firmware firmware
+                                'onFail (or (uds-flash-hardening-on-fail hardening) 'null)
+                                'powerGuard (if (uds-flash-hardening-power-guard hardening)
+                                                'configured 'null)))
          (target-uds-flash rt
                            (target* query)
                            firmware

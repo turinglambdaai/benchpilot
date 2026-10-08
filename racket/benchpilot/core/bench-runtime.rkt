@@ -110,6 +110,13 @@
          build-flash-plan
          (struct-out uds-flash-plan)
          (struct-out uds-flash-segment)
+         (struct-out flash-power-guard)
+         (struct-out uds-flash-hardening)
+         uds-flash-hardening-plan
+         uds-flash-hardening-on-fail
+         uds-flash-hardening-power-guard
+         uds-flash-hardening-expected-fingerprint
+         flash-plan-fingerprint
          ;; diag evidence
          diag-uds-request-evidence
          diag-uds-flash-evidence
@@ -711,10 +718,36 @@
   #:transparent)
 (struct uds-flash-segment (address data file) #:transparent)
 
+;; Post-port hardening (ADR-0002 follow-ups): recovery strategy, optional
+;; in-programming power guard, and the image fingerprint.
+(struct flash-power-guard (min-ma max-ma poll-ms) #:transparent)
+(struct uds-flash-hardening (plan on-fail power-guard expected-fingerprint) #:transparent)
+
+;; Deterministic FNV-1a over addresses + lengths + data, newest segment
+;; first in plan order. 16 hex chars — a fingerprint, not a crypto hash.
+(define (flash-plan-fingerprint segments)
+  (define h-box (box #xcbf29ce484222325))
+  (define (mix byte)
+    (set-box! h-box
+              (bitwise-and #xFFFFFFFFFFFFFFFF
+                           (* (bitwise-and #xFFFFFFFFFFFFFFFF
+                                           (bitwise-xor (unbox h-box) byte))
+                              #x100000001b3))))
+  (for ([seg (in-list segments)])
+    (mix (bitwise-and (uds-flash-segment-address seg) #xFF))
+    (for ([shift (in-range 8 64 8)])
+      (mix (bitwise-and (arithmetic-shift (uds-flash-segment-address seg)
+                                          (- shift))
+                        #xFF)))
+    (define data (uds-flash-segment-data seg))
+    (mix (length data))
+    (for ([b (in-list data)]) (mix b)))
+  (substring (~r (unbox h-box) #:base 16 #:min-width 16 #:pad-string "0") 0 16))
+
 (define (build-flash-plan firmware-path plan-path address max-block-payload)
   (unless (file-exists? firmware-path)
     (raise-validation (format "Firmware file not found: ~a" firmware-path)))
-  (define spec
+  (define hardening
     (if (and plan-path (not (string-blank? plan-path)))
         (let ()
           (unless (file-exists? plan-path)
@@ -724,17 +757,25 @@
                                                                       plan-path)))])
               (path->string dir)))
           (define parsed (read-flash-plan-json (file->string plan-path)))
-          (struct-copy
-           uds-flash-plan
-           parsed
-           [segments
-            (for/list ([seg (in-list (uds-flash-plan-segments parsed))])
-              (if (and (uds-flash-segment-data seg) (not (null? (uds-flash-segment-data seg))))
-                  seg
-                  (struct-copy uds-flash-segment
-                               seg
-                               [data
-                                (read-segment-file (uds-flash-segment-file seg) base-directory)])))]))
+          (define plan
+            (struct-copy
+             uds-flash-plan
+             (uds-flash-hardening-plan parsed)
+             [segments
+              (for/list ([seg (in-list (uds-flash-plan-segments
+                                        (uds-flash-hardening-plan parsed)))])
+                (if (and (uds-flash-segment-data seg)
+                         (not (null? (uds-flash-segment-data seg))))
+                    seg
+                    (struct-copy uds-flash-segment
+                                 seg
+                                 [data
+                                  (read-segment-file (uds-flash-segment-file seg)
+                                                     base-directory)])))]))
+          (uds-flash-hardening plan
+                               (uds-flash-hardening-on-fail parsed)
+                               (uds-flash-hardening-power-guard parsed)
+                               (uds-flash-hardening-expected-fingerprint parsed)))
         (let ()
           (unless address
             (raise-validation
@@ -754,19 +795,34 @@
                                        (bytes->list (image-segment-data seg))
                                        #f)))
                 (list (uds-flash-segment address (file->bytes firmware-path) #f))))
-          (uds-flash-plan segments
-                          1024
-                          #x02
-                          #f
-                          #f
-                          #xFF00
-                          #xFF01
-                          0
-                          1000
-                          10000))))
-  (if max-block-payload
-      (struct-copy uds-flash-plan spec [max-block-payload max-block-payload])
-      spec))
+          (uds-flash-hardening
+           (uds-flash-plan segments
+                           1024
+                           #x02
+                           #f
+                           #f
+                           #xFF00
+                           #xFF01
+                           0
+                           1000
+                           10000)
+           #f #f #f))))
+  ;; spec is a uds-flash-hardening: {plan, on-fail, power-guard, expected}
+  (define plan*
+    (if max-block-payload
+        (struct-copy uds-flash-plan (uds-flash-hardening-plan hardening)
+                     [max-block-payload max-block-payload])
+        (uds-flash-hardening-plan hardening)))
+  (define fingerprint (flash-plan-fingerprint (uds-flash-plan-segments plan*)))
+  (define expected (uds-flash-hardening-expected-fingerprint hardening))
+  (when (and expected (not (string-ci=? expected fingerprint)))
+    (raise-validation
+     (format "Flash plan fingerprint mismatch: the image hashes to ~a but the plan expects ~a."
+             fingerprint expected)))
+  (uds-flash-hardening plan*
+                       (uds-flash-hardening-on-fail hardening)
+                       (uds-flash-hardening-power-guard hardening)
+                       fingerprint))
 
 (define (read-segment-file file base-directory)
   (when (or (not file) (string-blank? file))
@@ -791,7 +847,9 @@
   (when (string-blank? firmware-path)
     (raise-argument-error 'target-uds-flash "non-blank firmware path" firmware-path))
   (validate-destructive-confirmation rt t "uds flash" confirm-target)
-  (define spec (build-flash-plan firmware-path plan-path address max-block-payload))
+  (define hardening
+    (build-flash-plan firmware-path plan-path address max-block-payload))
+  (define spec (uds-flash-hardening-plan hardening))
   (when (null? (uds-flash-plan-segments spec))
     (raise-validation
      "Flash plan has no segments; provide a firmware file with --address or a plan file."))
@@ -799,15 +857,91 @@
     (for/sum ([seg (in-list (uds-flash-plan-segments spec))])
              (length (or (uds-flash-segment-data seg) '()))))
   (define b (bound-capability rt t "diagnostics" diag-channel? "IDiagChannel"))
-  (run-mutation (bench-runtime-state rt)
-                (target-ref-id t)
-                "uds.flash"
-                (list (binding-resource-id b))
-                (lambda (cancel)
-                  (define result (diag-flash (binding-capability b) spec))
-                  (struct-copy uds-flash-result result [total-bytes total-bytes]))
-                #:deadline-ms deadline-ms
-                #:caller-cancel caller))
+
+  ;; Power guard: when the plan asks for one and the target has a power
+  ;; binding, a monitor thread samples the current while the flash runs;
+  ;; out-of-band current triggers best-effort power-off + cancellation.
+  (define guard (uds-flash-hardening-power-guard hardening))
+  (define power-binding
+    (and guard (target-has-capability? t "power")
+         (bound-capability rt t "power" power-supply? "IPowerSupply")))
+  (when (and guard (not power-binding))
+    (raise-validation
+     "Flash plan powerGuard requires a 'power' binding on the target."))
+  (define guard-trip-box (box #f))
+
+  (define (run-once cancel)
+    (define result (diag-flash (binding-capability b) spec))
+    (struct-copy uds-flash-result result [total-bytes total-bytes]))
+
+  (define (flash-with-retries)
+    (run-mutation (bench-runtime-state rt)
+                  (target-ref-id t)
+                  "uds.flash"
+                  (list (binding-resource-id b))
+                  (lambda (cancel)
+                  (define monitor
+                    (and guard power-binding
+                         (start-power-guard! (binding-capability power-binding)
+                                             guard cancel guard-trip-box)))
+                  (dynamic-wind
+                   (lambda () (void))
+                   (lambda ()
+                     (define result (run-once cancel))
+                     (when (and (not (uds-flash-result-ok result))
+                                (uds-flash-hardening-on-fail hardening))
+                       (set-box! guard-trip-box #t) ; do not restart the guard
+                       (define recover
+                         (case (uds-flash-hardening-on-fail hardening)
+                           [(retry) (lambda () (run-once cancel))]
+                           [(reset-and-retry)
+                            ;; best-effort ECU reset through the same channel
+                            (lambda ()
+                              (with-handlers ([exn:fail? (lambda (_) (void))])
+                                (diag-request (binding-capability b)
+                                              (list #x11 #x01) 1000 5000 cancel))
+                              (run-once cancel))]
+                           [else #f]))
+                       (when recover
+                         (define second (recover))
+                         (set! result
+                               (if (uds-flash-result-ok second)
+                                   (struct-copy
+                                    uds-flash-result second
+                                    [error
+                                     (format "~a (recovered via ~a)."
+                                             (or (uds-flash-result-error result) "failure")
+                                             (uds-flash-hardening-on-fail hardening))])
+                                   result))))
+                     result)
+                   (lambda ()
+                     (when monitor (kill-thread monitor)))))
+              #:deadline-ms deadline-ms
+              #:caller-cancel caller))
+
+  (flash-with-retries))
+
+;; Samples the current on the power binding while programming; outside the
+;; configured band it powers off best-effort and cancels the flash.
+(define (start-power-guard! supply guard cancel trip-box)
+  (thread
+   (lambda ()
+     (let loop ()
+       (sleep (/ (max 50 (flash-power-guard-poll-ms guard)) 1000.0))
+       (unless (unbox trip-box)
+         (define reading (ps-read-current supply 50 #f))
+         (when (current-reading-ok reading)
+           (define avg (current-reading-avg-ma reading))
+           (define over (and (flash-power-guard-max-ma guard)
+                             (> avg (flash-power-guard-max-ma guard))))
+           (define under (and (flash-power-guard-min-ma guard)
+                              (< avg (flash-power-guard-min-ma guard))))
+           (when (or over under)
+             (set-box! trip-box #t)
+             (with-handlers ([exn:fail? (lambda (_) (void))])
+               (ps-power-off supply #f))
+             (raise (make-cancelled-error))))       ; cancels the flash
+         (unless (unbox trip-box) (loop)))))))
 
 ;; ----------------------------------------------------------------------------
 ;; Preflight (BenchPreflight)
@@ -1141,15 +1275,35 @@
                [else #f]))
            (hash-ref seg 'file #f)))
         '()))
-  (uds-flash-plan segments
-                  (or (hash-ref doc 'maxBlockPayload #f) 1024)
-                  (or (hash-ref doc 'session #f) #x02)
-                  (hash-ref doc 'securityLevel #f)
-                  (hash-ref doc 'keyDeriver #f)
-                  (or (hash-ref doc 'eraseRoutineId #f) #xFF00)
-                  (or (hash-ref doc 'verifyRoutineId #f) #xFF01)
-                  (or (hash-ref doc 'blockRetries #f) 0)
-                  (or (hash-ref doc 'p2TimeoutMs #f) 1000)
-                  (or (hash-ref doc 'p2StarTimeoutMs #f) 10000)))
+  (define plan
+    (uds-flash-plan segments
+                    (or (hash-ref doc 'maxBlockPayload #f) 1024)
+                    (or (hash-ref doc 'session #f) #x02)
+                    (hash-ref doc 'securityLevel #f)
+                    (hash-ref doc 'keyDeriver #f)
+                    (or (hash-ref doc 'eraseRoutineId #f) #xFF00)
+                    (or (hash-ref doc 'verifyRoutineId #f) #xFF01)
+                    (or (hash-ref doc 'blockRetries #f) 0)
+                    (or (hash-ref doc 'p2TimeoutMs #f) 1000)
+                    (or (hash-ref doc 'p2StarTimeoutMs #f) 10000)))
+  (define on-fail-raw (hash-ref doc 'onFail #f))
+  (define on-fail
+    (cond
+      [(not on-fail-raw) #f]
+      [(member on-fail-raw '("retry" "resetAndRetry") string-ci=?) => (lambda (_) (string->symbol (first _)))]
+      [else
+       (raise-validation
+        (format "Flash plan onFail must be 'retry' or 'resetAndRetry' (got '~a')." on-fail-raw))]))
+  (define guard-raw (hash-ref doc 'powerGuard #f))
+  (define power-guard
+    (and guard-raw
+         (begin
+           (unless (hash? guard-raw)
+             (raise-validation "Flash plan powerGuard must be an object."))
+           (flash-power-guard
+            (hash-ref guard-raw 'minMa #f)
+            (hash-ref guard-raw 'maxMa #f)
+            (or (hash-ref guard-raw 'pollMs #f) 200)))))
+  (uds-flash-hardening plan on-fail power-guard (hash-ref doc 'expectedFingerprint #f)))
 
 ;; (flash plan JSON reader above; no forward references remain)
