@@ -45,6 +45,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Checkout Rivet (pinned)
+        uses: actions/checkout@v7
+        with:
+          repository: turinglambdaai/rivet
+          ref: 6eb0837a7e294fe302b56e9a379988edfe69e3cf
+          path: rivet
       - name: Setup Racket
         uses: Bogdanp/setup-racket@v1.15
         with:
@@ -52,8 +58,10 @@ jobs:
           distribution: full
           variant: CS
           version: '9.3'
-      - name: Install rivet (upstream main)
-        run: raco pkg install --auto --no-docs --skip-installed https://github.com/turinglambdaai/rivet.git
+      - name: Install crypto package
+        run: raco pkg install --auto --no-docs crypto
+      - name: Link Rivet
+        run: raco pkg install --auto --no-docs --link "$GITHUB_WORKSPACE/rivet/rivet" "$GITHUB_WORKSPACE/rivet/rivet-cli"
       - name: Install package
         run: raco pkg install --auto --name benchpilot --link racket
       - name: Studio schema compatibility gate
@@ -62,3 +70,74 @@ jobs:
       - name: Studio backend wire tests
         working-directory: studio
         run: raco test tests
+
+  # Host compile gates: both native hosts must build against the generated
+  # client on every change. `raco rivet build` compiles the Racket backend,
+  # regenerates the platform clients and invokes the platform toolchain
+  # (cmake/GTK4 on Linux, msbuild/WinUI 3 on Windows).
+  studio-linux-host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Checkout Rivet (pinned)
+        uses: actions/checkout@v7
+        with:
+          repository: turinglambdaai/rivet
+          ref: 6eb0837a7e294fe302b56e9a379988edfe69e3cf
+          path: rivet
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libsecret-1-dev libncurses-dev zlib1g-dev liblz4-dev
+      - name: Setup Racket
+        uses: Bogdanp/setup-racket@v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: '9.3'
+      - name: Install crypto package
+        run: raco pkg install --auto --no-docs crypto
+      - name: Link Rivet
+        run: raco pkg install --auto --no-docs --link "$GITHUB_WORKSPACE/rivet/rivet" "$GITHUB_WORKSPACE/rivet/rivet-cli"
+      - name: Link benchpilot runtime
+        run: raco pkg install --auto --name benchpilot --link racket
+      - name: Build Linux host
+        working-directory: studio
+        env:
+          RIVET_ROOT: ${{ github.workspace }}/rivet
+        run: raco rivet build
+
+  studio-windows-host:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Checkout Rivet (pinned)
+        uses: actions/checkout@v7
+        with:
+          repository: turinglambdaai/rivet
+          ref: 6eb0837a7e294fe302b56e9a379988edfe69e3cf
+          path: rivet
+      - name: Setup Racket
+        uses: Bogdanp/setup-racket@v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: '9.3'
+      - name: Install crypto package
+        shell: bash
+        run: raco pkg install --auto --no-docs crypto
+      - name: Link Rivet
+        shell: bash
+        run: raco pkg install --auto --no-docs --link "$GITHUB_WORKSPACE/rivet/rivet" "$GITHUB_WORKSPACE/rivet/rivet-cli"
+      - name: Link benchpilot runtime
+        shell: bash
+        run: raco pkg install --auto --name benchpilot --link racket
+      - name: Build Windows host
+        working-directory: studio
+        env:
+          RIVET_ROOT: ${{ github.workspace }}/rivet
+        shell: bash
+        run: raco rivet build

@@ -124,6 +124,30 @@
                                                  'deadlineExceeded #f))))]
     [(and (string=? method "POST") (string-suffix? target "/observations/cancel"))
      (values 200 (hasheq 'ok #t 'observationId "obs-1" 'cancelRequested #t 'error 'null))]
+    [(and (string=? method "GET") (string-suffix? target "/operations/evidence"))
+     (values 200 (hasheq 'ok #t
+                         'operationId "op-h1"
+                         'targetId "ecu-main"
+                         'operationKind "power.on"
+                         'resourceIds (list "psu-1")
+                         'createdAtUtc "2026-10-09T09:00:00.0000000+00:00"
+                         'items (list (hasheq 'kind "power.result"
+                                              'summary "Power-on completed."
+                                              'text 'null
+                                              'metadata (hasheq 'voltageV "12"
+                                                                'ok "true"
+                                                                'currentMa "873.681")))))]
+    [(and (string=? method "POST") (string-suffix? target "/uds/flash"))
+     (if (regexp-match? #rx"target=boom" query)
+         (values 409 (hasheq 'code "busy" 'error "resource busy"))
+         (values 200 (hasheq 'ok #t 'totalBytes 16 'segmentCount 1 'durationMs 13.0
+                             'error 'null
+                             'steps (list (hasheq 'step "diagnostic-session" 'ok #t
+                                                  'detail "session 0x02 accepted."
+                                                  'nrc 'null 'durationMs 6.0)
+                                          (hasheq 'step "download" 'ok #t
+                                                  'detail "16 bytes in 1 segment(s)."
+                                                  'nrc 'null 'durationMs 4.0)))))]
     [(and (string=? method "POST") (string-suffix? target "/serial/open"))
      (values 200 (hasheq 'ok #t 'port "/dev/ttyUSB0" 'baud 115200 'error 'null 'observationId "obs-2"))]
     [(and (string=? method "POST") (string-suffix? target "/serial/wait"))
@@ -385,6 +409,46 @@
 (check-true (list-ref dtcclear-wire 0))                      ; ok
 (check-true (list-ref dtcclear-wire 1))                      ; positive
 (check-true (void? (list-ref dtcclear-wire 2)))              ; error absent
+
+;; --- 9. operation evidence ------------------------------------------------------
+
+(define-values (ev-kind ev-wire) (call "operation-evidence" "op-h1"))
+(check-equal? ev-kind 'response)
+(check-true (list-ref ev-wire 0))                            ; ok
+(check-equal? (list-ref ev-wire 1) "op-h1")                  ; operation-id
+(check-equal? (list-ref ev-wire 2) "ecu-main")               ; target-id
+(check-equal? (list-ref ev-wire 3) "power.on")               ; operation-kind
+(check-equal? (list-ref ev-wire 5) "2026-10-09T09:00:00.0000000+00:00")
+(define ev-items (list-ref ev-wire 6))
+(check-equal? (length ev-items) 1)
+(define ev-item (car ev-items))
+(check-equal? (list-ref ev-item 0) "power.result")           ; kind
+(check-equal? (list-ref ev-item 1) "Power-on completed.")    ; summary
+(check-true (void? (list-ref ev-item 2)))                    ; text absent
+;; metadata flattens to attributes sorted by name: currentMa, ok, voltageV
+(define ev-attrs (list-ref ev-item 3))
+(check-equal? (length ev-attrs) 3)
+(check-equal? (list-ref (car ev-attrs) 0) "currentMa")
+(check-equal? (list-ref (car ev-attrs) 1) "873.681")
+
+;; --- 10. UDS flash ----------------------------------------------------------------
+
+(define-values (fl-kind fl-wire) (call "uds-flash" "ecu-main" "/tmp/fw.hex" (void) 524288 (void) "ecu-main"))
+(check-equal? fl-kind 'response)
+(check-true (list-ref fl-wire 0))                            ; ok
+(check-equal? (list-ref fl-wire 1) 16)                       ; total-bytes
+(check-equal? (list-ref fl-wire 2) 1)                        ; segment-count
+(check-equal? (list-ref fl-wire 3) 13)                       ; duration-ms (real 13.0 rounds)
+(check-true (void? (list-ref fl-wire 4)))                    ; error absent
+(define fl-steps (list-ref fl-wire 5))
+(check-equal? (length fl-steps) 2)
+(check-equal? (list-ref (car fl-steps) 0) "diagnostic-session")
+(check-true (list-ref (car fl-steps) 1))
+(check-equal? (list-ref (car fl-steps) 4) 6)                 ; step duration rounds too
+(check-equal? (list-ref (cadr fl-steps) 0) "download")
+
+(define-values (flboom-kind flboom-wire) (call "uds-flash" "boom" "/tmp/fw.hex" (void) (void) (void) "boom"))
+(check-equal? flboom-kind 'error)
 
 ;; --- shutdown ----------------------------------------------------------------
 

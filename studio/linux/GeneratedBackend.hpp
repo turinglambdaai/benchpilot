@@ -18,7 +18,7 @@ namespace rivet_app {
 inline constexpr char kModuleName[] = "backend";
 inline constexpr char kEntryName[] = "start";
 inline constexpr char kDisplayName[] = "BenchPilot Studio";
-inline constexpr char kVersion[] = "1.0.0";
+inline constexpr char kVersion[] = "1.1.0";
 inline constexpr std::int64_t kBuild = 1;
 inline constexpr char kIdentifier[] = "site.jrtx.benchpilot-studio";
 inline constexpr char kReleaseChannel[] = "stable";
@@ -67,11 +67,31 @@ struct DtcReadResult {
   std::optional<std::string> error;
 };
 
+struct EvidenceAttribute {
+  std::string name;
+  std::string value;
+};
+
+struct EvidenceItem {
+  std::string kind;
+  std::string summary;
+  std::optional<std::string> text;
+  std::vector<EvidenceAttribute> attributes;
+};
+
 struct FlashResult {
   bool ok;
   std::int64_t bytes;
   std::int64_t duration_ms;
   std::optional<std::string> error;
+};
+
+struct FlashStep {
+  std::string step;
+  bool ok;
+  std::string detail;
+  std::optional<std::string> nrc;
+  std::int64_t duration_ms;
 };
 
 struct ObservationCancelResult {
@@ -90,6 +110,16 @@ struct ObservationSummary {
   std::optional<std::string> deadline_at_utc;
   bool cancellation_requested;
   bool deadline_exceeded;
+};
+
+struct OperationEvidence {
+  bool ok;
+  std::string operation_id;
+  std::string target_id;
+  std::string operation_kind;
+  std::vector<std::string> resource_ids;
+  std::string created_at_utc;
+  std::vector<EvidenceItem> items;
 };
 
 struct OperationHistoryItem {
@@ -177,6 +207,15 @@ struct SerialWindowResult {
   std::optional<std::string> observation_id;
 };
 
+struct UdsFlashResult {
+  bool ok;
+  std::int64_t total_bytes;
+  std::int64_t segment_count;
+  std::int64_t duration_ms;
+  std::optional<std::string> error;
+  std::vector<FlashStep> steps;
+};
+
 struct UdsRequestResult {
   bool ok;
   bool positive;
@@ -223,6 +262,11 @@ inline rivet::Value encode_ObservationSummary(ObservationSummary const& v) { riv
 inline rivet::Value encode__List_ObservationSummary_(std::vector<ObservationSummary> const& xs) { rivet::Value::List r; r.reserve(xs.size()); for (auto const& x : xs) r.push_back(encode_ObservationSummary(x)); return rivet::Value(std::move(r)); }
 inline rivet::Value encode_OperationSummary(OperationSummary const& v) { rivet::Value::List r; r.reserve(8); r.push_back(encode_String(v.id)); r.push_back(encode_String(v.target_id)); r.push_back(encode_String(v.kind)); r.push_back(encode__List_String_(v.resource_ids)); r.push_back(encode_String(v.started_at_utc)); r.push_back(encode__Optional_String_(v.deadline_at_utc)); r.push_back(encode_Bool(v.cancellation_requested)); r.push_back(encode_Bool(v.deadline_exceeded)); return rivet::Value(std::move(r)); }
 inline rivet::Value encode__List_OperationSummary_(std::vector<OperationSummary> const& xs) { rivet::Value::List r; r.reserve(xs.size()); for (auto const& x : xs) r.push_back(encode_OperationSummary(x)); return rivet::Value(std::move(r)); }
+inline rivet::Value encode_EvidenceAttribute(EvidenceAttribute const& v) { rivet::Value::List r; r.reserve(2); r.push_back(encode_String(v.name)); r.push_back(encode_String(v.value)); return rivet::Value(std::move(r)); }
+inline rivet::Value encode__List_EvidenceAttribute_(std::vector<EvidenceAttribute> const& xs) { rivet::Value::List r; r.reserve(xs.size()); for (auto const& x : xs) r.push_back(encode_EvidenceAttribute(x)); return rivet::Value(std::move(r)); }
+inline rivet::Value encode_EvidenceItem(EvidenceItem const& v) { rivet::Value::List r; r.reserve(4); r.push_back(encode_String(v.kind)); r.push_back(encode_String(v.summary)); r.push_back(encode__Optional_String_(v.text)); r.push_back(encode__List_EvidenceAttribute_(v.attributes)); return rivet::Value(std::move(r)); }
+inline rivet::Value encode__List_EvidenceItem_(std::vector<EvidenceItem> const& xs) { rivet::Value::List r; r.reserve(xs.size()); for (auto const& x : xs) r.push_back(encode_EvidenceItem(x)); return rivet::Value(std::move(r)); }
+inline rivet::Value encode_OperationEvidence(OperationEvidence const& v) { rivet::Value::List r; r.reserve(7); r.push_back(encode_Bool(v.ok)); r.push_back(encode_String(v.operation_id)); r.push_back(encode_String(v.target_id)); r.push_back(encode_String(v.operation_kind)); r.push_back(encode__List_String_(v.resource_ids)); r.push_back(encode_String(v.created_at_utc)); r.push_back(encode__List_EvidenceItem_(v.items)); return rivet::Value(std::move(r)); }
 inline rivet::Value encode_OperationHistoryItem(OperationHistoryItem const& v) { rivet::Value::List r; r.reserve(10); r.push_back(encode_String(v.id)); r.push_back(encode_String(v.target_id)); r.push_back(encode_String(v.kind)); r.push_back(encode__List_String_(v.resource_ids)); r.push_back(encode_String(v.started_at_utc)); r.push_back(encode_String(v.completed_at_utc)); r.push_back(encode_Int64(v.duration_ms)); r.push_back(encode__Optional_String_(v.deadline_at_utc)); r.push_back(encode_String(v.state)); r.push_back(encode__Optional_String_(v.error)); return rivet::Value(std::move(r)); }
 inline rivet::Value encode__List_OperationHistoryItem_(std::vector<OperationHistoryItem> const& xs) { rivet::Value::List r; r.reserve(xs.size()); for (auto const& x : xs) r.push_back(encode_OperationHistoryItem(x)); return rivet::Value(std::move(r)); }
 inline rivet::Value encode_PowerOnResult(PowerOnResult const& v) { rivet::Value::List r; r.reserve(5); r.push_back(encode_Bool(v.ok)); r.push_back(encode_Int64(v.voltage_millivolts)); r.push_back(encode_Int64(v.current_microamps)); r.push_back(encode_Bool(v.settled)); r.push_back(encode__Optional_String_(v.error)); return rivet::Value(std::move(r)); }
@@ -235,6 +279,9 @@ inline rivet::Value encode__List_TargetSummary_(std::vector<TargetSummary> const
 inline rivet::Value encode_ResourceSummary(ResourceSummary const& v) { rivet::Value::List r; r.reserve(4); r.push_back(encode_String(v.id)); r.push_back(encode_String(v.driver)); r.push_back(encode__List_String_(v.capabilities)); r.push_back(encode_Bool(v.registered)); return rivet::Value(std::move(r)); }
 inline rivet::Value encode__List_ResourceSummary_(std::vector<ResourceSummary> const& xs) { rivet::Value::List r; r.reserve(xs.size()); for (auto const& x : xs) r.push_back(encode_ResourceSummary(x)); return rivet::Value(std::move(r)); }
 inline rivet::Value encode_RuntimeStatus(RuntimeStatus const& v) { rivet::Value::List r; r.reserve(6); r.push_back(encode_String(v.name)); r.push_back(encode_Int64(v.schema_version)); r.push_back(encode__Optional_String_(v.default_target)); r.push_back(encode__List_TargetSummary_(v.targets)); r.push_back(encode__List_ResourceSummary_(v.resources)); r.push_back(encode__Optional_String_(v.runtime_version)); return rivet::Value(std::move(r)); }
+inline rivet::Value encode_FlashStep(FlashStep const& v) { rivet::Value::List r; r.reserve(5); r.push_back(encode_String(v.step)); r.push_back(encode_Bool(v.ok)); r.push_back(encode_String(v.detail)); r.push_back(encode__Optional_String_(v.nrc)); r.push_back(encode_Int64(v.duration_ms)); return rivet::Value(std::move(r)); }
+inline rivet::Value encode__List_FlashStep_(std::vector<FlashStep> const& xs) { rivet::Value::List r; r.reserve(xs.size()); for (auto const& x : xs) r.push_back(encode_FlashStep(x)); return rivet::Value(std::move(r)); }
+inline rivet::Value encode_UdsFlashResult(UdsFlashResult const& v) { rivet::Value::List r; r.reserve(6); r.push_back(encode_Bool(v.ok)); r.push_back(encode_Int64(v.total_bytes)); r.push_back(encode_Int64(v.segment_count)); r.push_back(encode_Int64(v.duration_ms)); r.push_back(encode__Optional_String_(v.error)); r.push_back(encode__List_FlashStep_(v.steps)); return rivet::Value(std::move(r)); }
 inline rivet::Value encode_UdsRequestResult(UdsRequestResult const& v) { rivet::Value::List r; r.reserve(6); r.push_back(encode_Bool(v.ok)); r.push_back(encode_Bool(v.positive)); r.push_back(encode_String(v.request_hex)); r.push_back(encode__Optional_String_(v.response_hex)); r.push_back(encode__Optional_String_(v.nrc)); r.push_back(encode__Optional_String_(v.error)); return rivet::Value(std::move(r)); }
 
 inline std::string decode_String(rivet::Value const& v) { if (auto p = std::get_if<std::string>(&v.data)) return *p; throw std::runtime_error("Rivet result type mismatch: String"); }
@@ -258,6 +305,11 @@ inline ObservationSummary decode_ObservationSummary(rivet::Value const& v) { aut
 inline std::vector<ObservationSummary> decode__List_ObservationSummary_(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p) throw std::runtime_error("Rivet result type mismatch: (List ObservationSummary)"); std::vector<ObservationSummary> r; r.reserve(p->size()); for (auto const& x : *p) r.push_back(decode_ObservationSummary(x)); return r; }
 inline OperationSummary decode_OperationSummary(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p || p->size() != 8) throw std::runtime_error("Rivet result type mismatch: OperationSummary"); return OperationSummary{decode_String((*p)[0]), decode_String((*p)[1]), decode_String((*p)[2]), decode__List_String_((*p)[3]), decode_String((*p)[4]), decode__Optional_String_((*p)[5]), decode_Bool((*p)[6]), decode_Bool((*p)[7])}; }
 inline std::vector<OperationSummary> decode__List_OperationSummary_(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p) throw std::runtime_error("Rivet result type mismatch: (List OperationSummary)"); std::vector<OperationSummary> r; r.reserve(p->size()); for (auto const& x : *p) r.push_back(decode_OperationSummary(x)); return r; }
+inline EvidenceAttribute decode_EvidenceAttribute(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p || p->size() != 2) throw std::runtime_error("Rivet result type mismatch: EvidenceAttribute"); return EvidenceAttribute{decode_String((*p)[0]), decode_String((*p)[1])}; }
+inline std::vector<EvidenceAttribute> decode__List_EvidenceAttribute_(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p) throw std::runtime_error("Rivet result type mismatch: (List EvidenceAttribute)"); std::vector<EvidenceAttribute> r; r.reserve(p->size()); for (auto const& x : *p) r.push_back(decode_EvidenceAttribute(x)); return r; }
+inline EvidenceItem decode_EvidenceItem(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p || p->size() != 4) throw std::runtime_error("Rivet result type mismatch: EvidenceItem"); return EvidenceItem{decode_String((*p)[0]), decode_String((*p)[1]), decode__Optional_String_((*p)[2]), decode__List_EvidenceAttribute_((*p)[3])}; }
+inline std::vector<EvidenceItem> decode__List_EvidenceItem_(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p) throw std::runtime_error("Rivet result type mismatch: (List EvidenceItem)"); std::vector<EvidenceItem> r; r.reserve(p->size()); for (auto const& x : *p) r.push_back(decode_EvidenceItem(x)); return r; }
+inline OperationEvidence decode_OperationEvidence(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p || p->size() != 7) throw std::runtime_error("Rivet result type mismatch: OperationEvidence"); return OperationEvidence{decode_Bool((*p)[0]), decode_String((*p)[1]), decode_String((*p)[2]), decode_String((*p)[3]), decode__List_String_((*p)[4]), decode_String((*p)[5]), decode__List_EvidenceItem_((*p)[6])}; }
 inline OperationHistoryItem decode_OperationHistoryItem(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p || p->size() != 10) throw std::runtime_error("Rivet result type mismatch: OperationHistoryItem"); return OperationHistoryItem{decode_String((*p)[0]), decode_String((*p)[1]), decode_String((*p)[2]), decode__List_String_((*p)[3]), decode_String((*p)[4]), decode_String((*p)[5]), decode_Int64((*p)[6]), decode__Optional_String_((*p)[7]), decode_String((*p)[8]), decode__Optional_String_((*p)[9])}; }
 inline std::vector<OperationHistoryItem> decode__List_OperationHistoryItem_(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p) throw std::runtime_error("Rivet result type mismatch: (List OperationHistoryItem)"); std::vector<OperationHistoryItem> r; r.reserve(p->size()); for (auto const& x : *p) r.push_back(decode_OperationHistoryItem(x)); return r; }
 inline PowerOnResult decode_PowerOnResult(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p || p->size() != 5) throw std::runtime_error("Rivet result type mismatch: PowerOnResult"); return PowerOnResult{decode_Bool((*p)[0]), decode_Int64((*p)[1]), decode_Int64((*p)[2]), decode_Bool((*p)[3]), decode__Optional_String_((*p)[4])}; }
@@ -270,6 +322,9 @@ inline std::vector<TargetSummary> decode__List_TargetSummary_(rivet::Value const
 inline ResourceSummary decode_ResourceSummary(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p || p->size() != 4) throw std::runtime_error("Rivet result type mismatch: ResourceSummary"); return ResourceSummary{decode_String((*p)[0]), decode_String((*p)[1]), decode__List_String_((*p)[2]), decode_Bool((*p)[3])}; }
 inline std::vector<ResourceSummary> decode__List_ResourceSummary_(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p) throw std::runtime_error("Rivet result type mismatch: (List ResourceSummary)"); std::vector<ResourceSummary> r; r.reserve(p->size()); for (auto const& x : *p) r.push_back(decode_ResourceSummary(x)); return r; }
 inline RuntimeStatus decode_RuntimeStatus(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p || p->size() != 6) throw std::runtime_error("Rivet result type mismatch: RuntimeStatus"); return RuntimeStatus{decode_String((*p)[0]), decode_Int64((*p)[1]), decode__Optional_String_((*p)[2]), decode__List_TargetSummary_((*p)[3]), decode__List_ResourceSummary_((*p)[4]), decode__Optional_String_((*p)[5])}; }
+inline FlashStep decode_FlashStep(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p || p->size() != 5) throw std::runtime_error("Rivet result type mismatch: FlashStep"); return FlashStep{decode_String((*p)[0]), decode_Bool((*p)[1]), decode_String((*p)[2]), decode__Optional_String_((*p)[3]), decode_Int64((*p)[4])}; }
+inline std::vector<FlashStep> decode__List_FlashStep_(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p) throw std::runtime_error("Rivet result type mismatch: (List FlashStep)"); std::vector<FlashStep> r; r.reserve(p->size()); for (auto const& x : *p) r.push_back(decode_FlashStep(x)); return r; }
+inline UdsFlashResult decode_UdsFlashResult(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p || p->size() != 6) throw std::runtime_error("Rivet result type mismatch: UdsFlashResult"); return UdsFlashResult{decode_Bool((*p)[0]), decode_Int64((*p)[1]), decode_Int64((*p)[2]), decode_Int64((*p)[3]), decode__Optional_String_((*p)[4]), decode__List_FlashStep_((*p)[5])}; }
 inline UdsRequestResult decode_UdsRequestResult(rivet::Value const& v) { auto p = std::get_if<rivet::Value::List>(&v.data); if (!p || p->size() != 6) throw std::runtime_error("Rivet result type mismatch: UdsRequestResult"); return UdsRequestResult{decode_Bool((*p)[0]), decode_Bool((*p)[1]), decode_String((*p)[2]), decode__Optional_String_((*p)[3]), decode__Optional_String_((*p)[4]), decode__Optional_String_((*p)[5])}; }
 }  // namespace detail
 
@@ -297,6 +352,8 @@ class API {
   [[nodiscard]] std::uint64_t list_observations_async(std::function<void(Result<std::vector<ObservationSummary>>)> completion) { if (!completion) throw std::invalid_argument("Rivet async completion handler is empty"); return backend_.request_async("list-observations", rivet::Value::List{}, [completion = std::move(completion)](rivet::linux_runtime::CallResult raw) mutable { Result<std::vector<ObservationSummary>> result; if (raw.error) { result.error = raw.error; } else { try { if (!raw.value) throw std::runtime_error("Rivet async call completed without a value"); result.value = detail::decode__List_ObservationSummary_(*raw.value); } catch (...) { result.error = std::current_exception(); } } completion(std::move(result)); }); }
   std::future<std::vector<OperationSummary>> list_operations() { auto raw = backend_.call("list-operations", rivet::Value::List{}); return std::async(std::launch::deferred, [raw = std::move(raw)]() mutable -> std::vector<OperationSummary> { return detail::decode__List_OperationSummary_(raw.get()); }); }
   [[nodiscard]] std::uint64_t list_operations_async(std::function<void(Result<std::vector<OperationSummary>>)> completion) { if (!completion) throw std::invalid_argument("Rivet async completion handler is empty"); return backend_.request_async("list-operations", rivet::Value::List{}, [completion = std::move(completion)](rivet::linux_runtime::CallResult raw) mutable { Result<std::vector<OperationSummary>> result; if (raw.error) { result.error = raw.error; } else { try { if (!raw.value) throw std::runtime_error("Rivet async call completed without a value"); result.value = detail::decode__List_OperationSummary_(*raw.value); } catch (...) { result.error = std::current_exception(); } } completion(std::move(result)); }); }
+  std::future<OperationEvidence> operation_evidence(std::string operation_id) { auto raw = backend_.call("operation-evidence", rivet::Value::List{detail::encode_String(operation_id)}); return std::async(std::launch::deferred, [raw = std::move(raw)]() mutable -> OperationEvidence { return detail::decode_OperationEvidence(raw.get()); }); }
+  [[nodiscard]] std::uint64_t operation_evidence_async(std::string operation_id, std::function<void(Result<OperationEvidence>)> completion) { if (!completion) throw std::invalid_argument("Rivet async completion handler is empty"); return backend_.request_async("operation-evidence", rivet::Value::List{detail::encode_String(operation_id)}, [completion = std::move(completion)](rivet::linux_runtime::CallResult raw) mutable { Result<OperationEvidence> result; if (raw.error) { result.error = raw.error; } else { try { if (!raw.value) throw std::runtime_error("Rivet async call completed without a value"); result.value = detail::decode_OperationEvidence(*raw.value); } catch (...) { result.error = std::current_exception(); } } completion(std::move(result)); }); }
   std::future<std::vector<OperationHistoryItem>> operation_history(std::int64_t limit) { auto raw = backend_.call("operation-history", rivet::Value::List{detail::encode_Int64(limit)}); return std::async(std::launch::deferred, [raw = std::move(raw)]() mutable -> std::vector<OperationHistoryItem> { return detail::decode__List_OperationHistoryItem_(raw.get()); }); }
   [[nodiscard]] std::uint64_t operation_history_async(std::int64_t limit, std::function<void(Result<std::vector<OperationHistoryItem>>)> completion) { if (!completion) throw std::invalid_argument("Rivet async completion handler is empty"); return backend_.request_async("operation-history", rivet::Value::List{detail::encode_Int64(limit)}, [completion = std::move(completion)](rivet::linux_runtime::CallResult raw) mutable { Result<std::vector<OperationHistoryItem>> result; if (raw.error) { result.error = raw.error; } else { try { if (!raw.value) throw std::runtime_error("Rivet async call completed without a value"); result.value = detail::decode__List_OperationHistoryItem_(*raw.value); } catch (...) { result.error = std::current_exception(); } } completion(std::move(result)); }); }
   std::future<ActionResult> power_off(std::string target) { auto raw = backend_.call("power-off", rivet::Value::List{detail::encode_String(target)}); return std::async(std::launch::deferred, [raw = std::move(raw)]() mutable -> ActionResult { return detail::decode_ActionResult(raw.get()); }); }
@@ -313,6 +370,8 @@ class API {
   [[nodiscard]] std::uint64_t serial_window_async(std::string target, std::int64_t lines, std::optional<std::string> line_filter, std::function<void(Result<SerialWindowResult>)> completion) { if (!completion) throw std::invalid_argument("Rivet async completion handler is empty"); return backend_.request_async("serial-window", rivet::Value::List{detail::encode_String(target), detail::encode_Int64(lines), detail::encode__Optional_String_(line_filter)}, [completion = std::move(completion)](rivet::linux_runtime::CallResult raw) mutable { Result<SerialWindowResult> result; if (raw.error) { result.error = raw.error; } else { try { if (!raw.value) throw std::runtime_error("Rivet async call completed without a value"); result.value = detail::decode_SerialWindowResult(*raw.value); } catch (...) { result.error = std::current_exception(); } } completion(std::move(result)); }); }
   std::future<RuntimeStatus> status() { auto raw = backend_.call("status", rivet::Value::List{}); return std::async(std::launch::deferred, [raw = std::move(raw)]() mutable -> RuntimeStatus { return detail::decode_RuntimeStatus(raw.get()); }); }
   [[nodiscard]] std::uint64_t status_async(std::function<void(Result<RuntimeStatus>)> completion) { if (!completion) throw std::invalid_argument("Rivet async completion handler is empty"); return backend_.request_async("status", rivet::Value::List{}, [completion = std::move(completion)](rivet::linux_runtime::CallResult raw) mutable { Result<RuntimeStatus> result; if (raw.error) { result.error = raw.error; } else { try { if (!raw.value) throw std::runtime_error("Rivet async call completed without a value"); result.value = detail::decode_RuntimeStatus(*raw.value); } catch (...) { result.error = std::current_exception(); } } completion(std::move(result)); }); }
+  std::future<UdsFlashResult> uds_flash(std::string target, std::string firmware, std::optional<std::string> plan_path, std::optional<std::int64_t> address, std::optional<std::int64_t> max_block_payload, std::optional<std::string> confirm_target) { auto raw = backend_.call("uds-flash", rivet::Value::List{detail::encode_String(target), detail::encode_String(firmware), detail::encode__Optional_String_(plan_path), detail::encode__Optional_Int64_(address), detail::encode__Optional_Int64_(max_block_payload), detail::encode__Optional_String_(confirm_target)}); return std::async(std::launch::deferred, [raw = std::move(raw)]() mutable -> UdsFlashResult { return detail::decode_UdsFlashResult(raw.get()); }); }
+  [[nodiscard]] std::uint64_t uds_flash_async(std::string target, std::string firmware, std::optional<std::string> plan_path, std::optional<std::int64_t> address, std::optional<std::int64_t> max_block_payload, std::optional<std::string> confirm_target, std::function<void(Result<UdsFlashResult>)> completion) { if (!completion) throw std::invalid_argument("Rivet async completion handler is empty"); return backend_.request_async("uds-flash", rivet::Value::List{detail::encode_String(target), detail::encode_String(firmware), detail::encode__Optional_String_(plan_path), detail::encode__Optional_Int64_(address), detail::encode__Optional_Int64_(max_block_payload), detail::encode__Optional_String_(confirm_target)}, [completion = std::move(completion)](rivet::linux_runtime::CallResult raw) mutable { Result<UdsFlashResult> result; if (raw.error) { result.error = raw.error; } else { try { if (!raw.value) throw std::runtime_error("Rivet async call completed without a value"); result.value = detail::decode_UdsFlashResult(*raw.value); } catch (...) { result.error = std::current_exception(); } } completion(std::move(result)); }); }
   std::future<UdsRequestResult> uds_request(std::string target, std::string request_hex, std::optional<std::int64_t> p2_timeout_ms, std::optional<std::int64_t> p2_star_timeout_ms) { auto raw = backend_.call("uds-request", rivet::Value::List{detail::encode_String(target), detail::encode_String(request_hex), detail::encode__Optional_Int64_(p2_timeout_ms), detail::encode__Optional_Int64_(p2_star_timeout_ms)}); return std::async(std::launch::deferred, [raw = std::move(raw)]() mutable -> UdsRequestResult { return detail::decode_UdsRequestResult(raw.get()); }); }
   [[nodiscard]] std::uint64_t uds_request_async(std::string target, std::string request_hex, std::optional<std::int64_t> p2_timeout_ms, std::optional<std::int64_t> p2_star_timeout_ms, std::function<void(Result<UdsRequestResult>)> completion) { if (!completion) throw std::invalid_argument("Rivet async completion handler is empty"); return backend_.request_async("uds-request", rivet::Value::List{detail::encode_String(target), detail::encode_String(request_hex), detail::encode__Optional_Int64_(p2_timeout_ms), detail::encode__Optional_Int64_(p2_star_timeout_ms)}, [completion = std::move(completion)](rivet::linux_runtime::CallResult raw) mutable { Result<UdsRequestResult> result; if (raw.error) { result.error = raw.error; } else { try { if (!raw.value) throw std::runtime_error("Rivet async call completed without a value"); result.value = detail::decode_UdsRequestResult(*raw.value); } catch (...) { result.error = std::current_exception(); } } completion(std::move(result)); }); }
 

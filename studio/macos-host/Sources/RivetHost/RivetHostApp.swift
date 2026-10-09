@@ -40,6 +40,9 @@ final class AppModel: ObservableObject {
     @Published var dtcs: [DtcEntry] = []
     @Published var dtcAvailableMask: String?
     @Published var dtcMessage: String?
+    @Published var evidence: OperationEvidence?
+    @Published var flashSteps: [FlashStep] = []
+    @Published var flashResultLine: String?
 
     private var backend: EmbeddedRacketBackend?
 
@@ -237,6 +240,24 @@ final class AppModel: ObservableObject {
             } else {
                 self.dtcMessage = result.error ?? "The ECU did not accept the clear request."
             }
+        }
+    }
+
+    func udsFlash(_ target: TargetSummary, firmware: String, planPath: String?, address: Int64?) {
+        perform("UDS flashing \(target.name)…") { api in
+            let result = try await api.uds_flash(target: target.id, firmware: firmware,
+                                                 plan_path: planPath, address: address,
+                                                 max_block_payload: nil, confirm_target: target.id)
+            self.flashSteps = result.steps
+            self.flashResultLine = result.ok
+                ? "UDS flash completed: \(result.total_bytes) bytes in \(result.segment_count) segment(s), \(result.duration_ms) ms."
+                : "UDS flash failed: \(result.error ?? "unknown error")"
+        }
+    }
+
+    func loadEvidence(_ entry: OperationHistoryItem) {
+        perform("Loading evidence for \(entry.kind)…") { api in
+            self.evidence = try await api.operation_evidence(operation_id: entry.id)
         }
     }
 

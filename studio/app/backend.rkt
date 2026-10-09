@@ -154,6 +154,40 @@
    [positive : Bool]
    [error : (Optional String)]))
 
+(define-record EvidenceAttribute
+  ([name : String]
+   [value : String]))
+
+(define-record EvidenceItem
+  ([kind : String]
+   [summary : String]
+   [text : (Optional String)]
+   [attributes : (List EvidenceAttribute)]))
+
+(define-record OperationEvidence
+  ([ok : Bool]
+   [operation-id : String]
+   [target-id : String]
+   [operation-kind : String]
+   [resource-ids : (List String)]
+   [created-at-utc : String]
+   [items : (List EvidenceItem)]))
+
+(define-record FlashStep
+  ([step : String]
+   [ok : Bool]
+   [detail : String]
+   [nrc : (Optional String)]
+   [duration-ms : Int64]))
+
+(define-record UdsFlashResult
+  ([ok : Bool]
+   [total-bytes : Int64]
+   [segment-count : Int64]
+   [duration-ms : Int64]
+   [error : (Optional String)]
+   [steps : (List FlashStep)]))
+
 (define-record ObservationSummary
   ([id : String]
    [target-id : String]
@@ -203,6 +237,11 @@
   (if (real? v)
       (inexact->exact (floor (* v scale)))
       0))
+
+;; Daemon durationMs fields are real milliseconds; RVT1 carries integers.
+(define (jround-ms j key)
+  (define v (jref j key))
+  (if (real? v) (inexact->exact (round v)) 0))
 
 (define (j->target j)
   (TargetSummary (jstr j 'id)
@@ -428,6 +467,60 @@
                       (hasheq 'requestHex
                               (bytes->hex (uds-clear-dtcs grp)))))
   (DtcClearResult (jbool j 'ok) (jbool j 'positive) (jopt j 'error)))
+
+;; --- UDS flash ----------------------------------------------------------------
+
+(define-rpc (uds-flash [target : String]
+                       [firmware : String]
+                       [plan-path : (Optional String)]
+                       [address : (Optional Int64)]
+                       [max-block-payload : (Optional Int64)]
+                       [confirm-target : (Optional String)]
+                       : UdsFlashResult)
+  (define j (api-post "/uds/flash"
+                      (hasheq 'target target)
+                      (hasheq 'firmware firmware
+                              'planPath (opt->null plan-path)
+                              'address (opt->null address)
+                              'maxBlockPayload (opt->null max-block-payload)
+                              'confirmTarget (opt->null confirm-target))))
+  (UdsFlashResult (jbool j 'ok)
+                  (jint j 'totalBytes)
+                  (jint j 'segmentCount)
+                  (jround-ms j 'durationMs)
+                  (jopt j 'error)
+                  (map (lambda (s)
+                         (FlashStep (jstr s 'step)
+                                    (jbool s 'ok)
+                                    (jstr s 'detail)
+                                    (jopt s 'nrc)
+                                    (jround-ms s 'durationMs)))
+                       (jlist j 'steps))))
+
+;; --- Evidence -----------------------------------------------------------------
+
+(define (j->evidence-item j)
+  (define metadata (jref j 'metadata))
+  (EvidenceItem
+   (jstr j 'kind)
+   (jstr j 'summary)
+   (jopt j 'text)
+   (if (hash? metadata)
+       (for/list ([k (in-list (sort (hash-keys metadata) string<? #:key (lambda (x) (format "~a" x))))])
+         (define v (hash-ref metadata k))
+         (EvidenceAttribute (format "~a" k)
+                            (if (eq? v 'null) "" (format "~a" v))))
+       '())))
+
+(define-rpc (operation-evidence [operation-id : String] : OperationEvidence)
+  (define j (api-get "/operations/evidence" (hasheq 'operationId operation-id)))
+  (OperationEvidence (jbool j 'ok)
+                     (jstr j 'operationId)
+                     (jstr j 'targetId)
+                     (jstr j 'operationKind)
+                     (jlist j 'resourceIds)
+                     (jstr j 'createdAtUtc)
+                     (map j->evidence-item (jlist j 'items))))
 
 (define-rpc (list-observations : (List ObservationSummary))
   (map j->observation (jlist (api-get "/observations") 'observations)))

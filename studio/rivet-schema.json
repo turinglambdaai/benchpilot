@@ -234,6 +234,64 @@
     {
       "fields": [
         {
+          "name": "name",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "value",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        }
+      ],
+      "name": "EvidenceAttribute"
+    },
+    {
+      "fields": [
+        {
+          "name": "kind",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "summary",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "text",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "String"
+            },
+            "kind": "optional"
+          }
+        },
+        {
+          "name": "attributes",
+          "type": {
+            "element": {
+              "kind": "record",
+              "name": "EvidenceAttribute"
+            },
+            "kind": "list"
+          }
+        }
+      ],
+      "name": "EvidenceItem"
+    },
+    {
+      "fields": [
+        {
           "name": "ok",
           "type": {
             "kind": "scalar",
@@ -266,6 +324,49 @@
         }
       ],
       "name": "FlashResult"
+    },
+    {
+      "fields": [
+        {
+          "name": "step",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "ok",
+          "type": {
+            "kind": "scalar",
+            "name": "Bool"
+          }
+        },
+        {
+          "name": "detail",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "nrc",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "String"
+            },
+            "kind": "optional"
+          }
+        },
+        {
+          "name": "duration-ms",
+          "type": {
+            "kind": "scalar",
+            "name": "Int64"
+          }
+        }
+      ],
+      "name": "FlashStep"
     },
     {
       "fields": [
@@ -369,6 +470,66 @@
         }
       ],
       "name": "ObservationSummary"
+    },
+    {
+      "fields": [
+        {
+          "name": "ok",
+          "type": {
+            "kind": "scalar",
+            "name": "Bool"
+          }
+        },
+        {
+          "name": "operation-id",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "target-id",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "operation-kind",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "resource-ids",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "String"
+            },
+            "kind": "list"
+          }
+        },
+        {
+          "name": "created-at-utc",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "items",
+          "type": {
+            "element": {
+              "kind": "record",
+              "name": "EvidenceItem"
+            },
+            "kind": "list"
+          }
+        }
+      ],
+      "name": "OperationEvidence"
     },
     {
       "fields": [
@@ -884,6 +1045,59 @@
           }
         },
         {
+          "name": "total-bytes",
+          "type": {
+            "kind": "scalar",
+            "name": "Int64"
+          }
+        },
+        {
+          "name": "segment-count",
+          "type": {
+            "kind": "scalar",
+            "name": "Int64"
+          }
+        },
+        {
+          "name": "duration-ms",
+          "type": {
+            "kind": "scalar",
+            "name": "Int64"
+          }
+        },
+        {
+          "name": "error",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "String"
+            },
+            "kind": "optional"
+          }
+        },
+        {
+          "name": "steps",
+          "type": {
+            "element": {
+              "kind": "record",
+              "name": "FlashStep"
+            },
+            "kind": "list"
+          }
+        }
+      ],
+      "name": "UdsFlashResult"
+    },
+    {
+      "fields": [
+        {
+          "name": "ok",
+          "type": {
+            "kind": "scalar",
+            "name": "Bool"
+          }
+        },
+        {
           "name": "positive",
           "type": {
             "kind": "scalar",
@@ -1132,6 +1346,22 @@
     {
       "arguments": [
         {
+          "name": "operation-id",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        }
+      ],
+      "name": "operation-evidence",
+      "result": {
+        "kind": "record",
+        "name": "OperationEvidence"
+      }
+    },
+    {
+      "arguments": [
+        {
           "name": "limit",
           "type": {
             "kind": "scalar",
@@ -1322,6 +1552,69 @@
       "result": {
         "kind": "record",
         "name": "RuntimeStatus"
+      }
+    },
+    {
+      "arguments": [
+        {
+          "name": "target",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "firmware",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "plan-path",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "String"
+            },
+            "kind": "optional"
+          }
+        },
+        {
+          "name": "address",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "Int64"
+            },
+            "kind": "optional"
+          }
+        },
+        {
+          "name": "max-block-payload",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "Int64"
+            },
+            "kind": "optional"
+          }
+        },
+        {
+          "name": "confirm-target",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "String"
+            },
+            "kind": "optional"
+          }
+        }
+      ],
+      "name": "uds-flash",
+      "result": {
+        "kind": "record",
+        "name": "UdsFlashResult"
       }
     },
     {

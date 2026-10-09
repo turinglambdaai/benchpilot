@@ -42,6 +42,8 @@ std::string utf8(std::filesystem::path const& path) {
   return result;
 }
 
+std::wstring wide(std::string const& text) { return winrt::to_hstring(text); }
+
 rivet::windows::RacketRuntimeConfig runtime_config() {
   auto const exe = executable_path();
   auto const root = exe.parent_path();
@@ -63,8 +65,82 @@ rivet::windows::RacketRuntimeConfig runtime_config() {
 
 MainWindow::MainWindow() {
   InitializeComponent();
-  Title(L"Rivet — Racket + WinUI 3");
+  Title(L"BenchPilot Studio");
   InitializeBackendAsync();
+}
+
+// One background job: `body` runs off the UI thread and touches widgets only
+// through the dispatcher lambdas it enqueues itself.
+void MainWindow::RunJob(std::function<void()> body) {
+  auto const weak = get_weak();
+  std::thread([weak, body = std::move(body)]() mutable {
+    try {
+      body();
+    } catch (std::exception const& e) {
+      auto const message = std::string(e.what());
+      if (auto window = weak.get()) {
+        window->DispatcherQueue().TryEnqueue([weak, message] {
+          if (auto current = weak.get()) {
+            current->SetErrorUi(message);
+            current->SetButtonsEnabled(true);
+          }
+        });
+      }
+    }
+  }).detach();
+}
+
+void MainWindow::FetchStatus() {
+  auto const weak = get_weak();
+  auto backend = backend_;
+  RunJob([weak, backend]() mutable {
+    rivet_app::API api(*backend);
+    rivet_app::RuntimeStatus const status = api.status().get();
+    std::wstring text = wide(status.name);
+    if (status.runtime_version.has_value()) {
+      text += L" · runtime " + wide(*status.runtime_version);
+    }
+    text += L"\n" + std::to_wstring(status.targets.size()) + L" target(s):";
+    std::wstring first_target;
+    for (auto const& target : status.targets) {
+      if (first_target.empty()) {
+        first_target = wide(target.id);
+      }
+      text += L"\n · " + wide(target.name) + L" (" + wide(target.id) + L")";
+    }
+    if (auto window = weak.get()) {
+      window->target_id_ = first_target;
+      window->DispatcherQueue().TryEnqueue([weak, text] {
+        if (auto current = weak.get()) {
+          current->InfoText().Text(text);
+        }
+      });
+    }
+  });
+}
+
+void MainWindow::FetchHistory() {
+  auto const weak = get_weak();
+  auto backend = backend_;
+  RunJob([weak, backend]() mutable {
+    rivet_app::API api(*backend);
+    auto const past = api.operation_history(5).get();
+    std::wstring text = L"Recent operations:";
+    if (past.empty()) {
+      text += L" none yet";
+    }
+    for (auto const& entry : past) {
+      text += L"\n · " + wide(entry.state) + L" " + wide(entry.kind) + L" (" +
+              std::to_wstring(entry.duration_ms) + L" ms)";
+    }
+    if (auto window = weak.get()) {
+      window->DispatcherQueue().TryEnqueue([weak, text] {
+        if (auto current = weak.get()) {
+          current->HistoryText().Text(text);
+        }
+      });
+    }
+  });
 }
 
 winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
@@ -74,43 +150,16 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
 
   try {
     // Booting the embedded runtime can block on file I/O, so only startup is
-    // moved off the UI thread. RPC/State traffic below is completion-driven.
+    // moved off the UI thread.
     co_await winrt::resume_background();
     backend->start();
 
     dispatcher.TryEnqueue([weak, backend = std::move(backend)]() mutable {
       if (auto window = weak.get()) {
         window->backend_ = std::move(backend);
-        try {
-          rivet_app::API api(*window->backend_);
-          auto const callbackDispatcher = window->DispatcherQueue();
-          auto const callbackWeak = window->get_weak();
-          (void)api.get_counter_async(
-              [callbackDispatcher, callbackWeak](rivet_app::Result<std::int64_t> result) {
-                try {
-                  auto const initial = result.get();
-                  callbackDispatcher.TryEnqueue([callbackWeak, initial] {
-                    if (auto current = callbackWeak.get()) {
-                      current->count_.store(initial, std::memory_order_relaxed);
-                      std::wstring text = L"Count: ";
-                      text += std::to_wstring(initial);
-                      current->CountText().Text(winrt::hstring(text));
-                      current->SetReadyUi();
-                    }
-                  });
-                } catch (std::exception const& e) {
-                  auto message = std::string(e.what());
-                  callbackDispatcher.TryEnqueue(
-                      [callbackWeak, message = std::move(message)] {
-                        if (auto current = callbackWeak.get()) {
-                          current->SetErrorUi(message);
-                        }
-                      });
-                }
-              });
-        } catch (std::exception const& e) {
-          window->SetErrorUi(e.what());
-        }
+        window->SetReadyUi();
+        window->FetchStatus();
+        window->FetchHistory();
       } else {
         // Never destroy the last Backend reference on its own reader thread.
         std::thread([backend = std::move(backend)]() mutable {
@@ -128,65 +177,142 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
   }
 }
 
-void MainWindow::Increment_Click(
+void MainWindow::PowerOn_Click(
     winrt::Windows::Foundation::IInspectable const&,
     Microsoft::UI::Xaml::RoutedEventArgs const&) {
-  IncrementAsync();
-}
-
-void MainWindow::IncrementAsync() {
-  auto const dispatcher = DispatcherQueue();
   auto const weak = get_weak();
   auto backend = backend_;
-  if (backend == nullptr || !backend->running()) {
+  if (backend == nullptr || !backend->running() || target_id_.empty()) {
     SetErrorUi("Racket backend is not running");
     return;
   }
-
-  auto const next = count_.load(std::memory_order_relaxed) + 1;
-  IncrementButton().IsEnabled(false);
-
-  try {
+  SetButtonsEnabled(false);
+  StatusBar().Severity(Microsoft::UI::Xaml::Controls::InfoBarSeverity::Informational);
+  StatusBar().Message(L"Powering on…");
+  auto const target = wide(target_id_);
+  RunJob([weak, backend, target]() mutable {
     rivet_app::API api(*backend);
-    (void)api.set_counter_async(
-        next,
-        [dispatcher, weak](rivet_app::Result<std::int64_t> result) {
-          try {
-            auto const stored = result.get();
-            dispatcher.TryEnqueue([weak, stored] {
-              if (auto window = weak.get()) {
-                window->count_.store(stored, std::memory_order_relaxed);
-                std::wstring text = L"Count: ";
-                text += std::to_wstring(stored);
-                window->CountText().Text(winrt::hstring(text));
-                window->IncrementButton().IsEnabled(true);
-              }
-            });
-          } catch (std::exception const& e) {
-            auto message = std::string(e.what());
-            dispatcher.TryEnqueue([weak, message = std::move(message)] {
-              if (auto window = weak.get()) {
-                window->SetErrorUi(message);
-                window->IncrementButton().IsEnabled(true);
-              }
-            });
-          }
-        });
-  } catch (std::exception const& e) {
-    SetErrorUi(e.what());
-    IncrementButton().IsEnabled(true);
+    rivet_app::PowerOnResult const result =
+        api.power_on(winrt::to_string(target), 12000, 2000).get();
+    auto const line =
+        result.ok ? L"Power on: 12 V settled"
+                  : L"Power on failed: " + wide(result.error.value_or("unknown error"));
+    if (auto window = weak.get()) {
+      window->DispatcherQueue().TryEnqueue([weak, line] {
+        if (auto current = weak.get()) {
+          current->StatusBar().Severity(
+              result.ok ? Microsoft::UI::Xaml::Controls::InfoBarSeverity::Success
+                        : Microsoft::UI::Xaml::Controls::InfoBarSeverity::Error);
+          current->StatusBar().Message(line);
+          current->SetButtonsEnabled(true);
+        }
+      });
+    }
+  });
+}
+
+void MainWindow::PowerOff_Click(
+    winrt::Windows::Foundation::IInspectable const&,
+    Microsoft::UI::Xaml::RoutedEventArgs const&) {
+  auto const weak = get_weak();
+  auto backend = backend_;
+  if (backend == nullptr || !backend->running() || target_id_.empty()) {
+    SetErrorUi("Racket backend is not running");
+    return;
   }
+  SetButtonsEnabled(false);
+  StatusBar().Severity(Microsoft::UI::Xaml::Controls::InfoBarSeverity::Informational);
+  StatusBar().Message(L"Powering off…");
+  auto const target = wide(target_id_);
+  RunJob([weak, backend, target]() mutable {
+    rivet_app::API api(*backend);
+    rivet_app::ActionResult const result =
+        api.power_off(winrt::to_string(target)).get();
+    auto const line = result.ok ? L"Power off."
+                                : L"Power off failed: " +
+                                      wide(result.error.value_or("unknown error"));
+    if (auto window = weak.get()) {
+      window->DispatcherQueue().TryEnqueue([weak, line, ok = result.ok] {
+        if (auto current = weak.get()) {
+          current->StatusBar().Severity(
+              ok ? Microsoft::UI::Xaml::Controls::InfoBarSeverity::Success
+                 : Microsoft::UI::Xaml::Controls::InfoBarSeverity::Error);
+          current->StatusBar().Message(line);
+          current->SetButtonsEnabled(true);
+        }
+      });
+    }
+  });
+}
+
+void MainWindow::DtcRead_Click(
+    winrt::Windows::Foundation::IInspectable const&,
+    Microsoft::UI::Xaml::RoutedEventArgs const&) {
+  auto const weak = get_weak();
+  auto backend = backend_;
+  if (backend == nullptr || !backend->running() || target_id_.empty()) {
+    SetErrorUi("Racket backend is not running");
+    return;
+  }
+  SetButtonsEnabled(false);
+  StatusBar().Severity(Microsoft::UI::Xaml::Controls::InfoBarSeverity::Informational);
+  StatusBar().Message(L"Reading DTCs…");
+  auto const target = wide(target_id_);
+  RunJob([weak, backend, target]() mutable {
+    rivet_app::API api(*backend);
+    rivet_app::DtcReadResult const result =
+        api.dtc_read(winrt::to_string(target), std::nullopt).get();
+    std::wstring text;
+    if (!result.positive) {
+      text = L"DTC read: " + wide(result.error.value_or("the ECU did not answer."));
+    } else if (result.dtcs.empty()) {
+      text = L"DTC memory: no faults stored";
+    } else {
+      text = L"DTC memory:";
+      for (auto const& entry : result.dtcs) {
+        text += L"\n · " + wide(entry.dtc) + L" status " + wide(entry.status);
+      }
+    }
+    if (auto window = weak.get()) {
+      window->DispatcherQueue().TryEnqueue([weak, text] {
+        if (auto current = weak.get()) {
+          current->DetailText().Text(text);
+          current->SetButtonsEnabled(true);
+        }
+      });
+    }
+  });
+}
+
+void MainWindow::Refresh_Click(
+    winrt::Windows::Foundation::IInspectable const&,
+    Microsoft::UI::Xaml::RoutedEventArgs const&) {
+  if (backend_ == nullptr || !backend_->running()) {
+    SetErrorUi("Racket backend is not running");
+    return;
+  }
+  SetButtonsEnabled(false);
+  FetchStatus();
+  FetchHistory();
 }
 
 void MainWindow::SetReadyUi() {
   StatusBar().Severity(Microsoft::UI::Xaml::Controls::InfoBarSeverity::Success);
-  StatusBar().Message(L"Embedded Racket CS is ready");
-  IncrementButton().IsEnabled(true);
+  StatusBar().Message(L"Connected");
+  SetButtonsEnabled(true);
 }
 
 void MainWindow::SetErrorUi(std::string const& message) {
   StatusBar().Severity(Microsoft::UI::Xaml::Controls::InfoBarSeverity::Error);
   StatusBar().Message(winrt::to_hstring(message));
+}
+
+void MainWindow::SetButtonsEnabled(bool enabled) {
+  auto const has_target = !target_id_.empty();
+  PowerOnButton().IsEnabled(enabled && has_target);
+  PowerOffButton().IsEnabled(enabled && has_target);
+  DtcReadButton().IsEnabled(enabled && has_target);
+  RefreshButton().IsEnabled(enabled);
 }
 
 }  // namespace winrt::RivetHost::implementation

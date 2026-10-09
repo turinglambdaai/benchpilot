@@ -13,6 +13,11 @@ struct ContentView: View {
     @State private var serialTimeout = "10000"
     @State private var udsRequestHex = ""
     @State private var dtcClearTargetId: String?
+    @State private var udsFirmwarePath = ""
+    @State private var udsPlanPath = ""
+    @State private var udsAddress = ""
+    @State private var udsFlashPickerId: String?
+    @State private var udsFlashTargetId: String?
     @State private var flashTargetId: String?
     @State private var pollTask: Task<Void, Never>?
 
@@ -24,11 +29,13 @@ struct ContentView: View {
                 List {
                     targetsSection(status)
                     flashSection(status)
+                    udsFlashSection(status)
                     serialSection(status)
                     diagnosticsSection(status)
                     operationsSection
                     observationsSection
                     historySection
+                    evidenceSection
                 }
             } else {
                 emptyState
@@ -65,6 +72,25 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) { dtcClearTargetId = nil }
         } message: {
             Text("ClearDiagnosticInformation erases every stored DTC on the ECU. This cannot be undone.")
+        }
+        .confirmationDialog(
+            "Run the UDS flash workflow on \(udsFlashTargetId ?? "")?",
+            isPresented: Binding(get: { udsFlashTargetId != nil }, set: { if !$0 { udsFlashTargetId = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("UDS flash", role: .destructive) {
+                if let id = udsFlashTargetId, let target = model.runtime?.targets.first(where: { $0.id == id }) {
+                    let hex = udsAddress.trimmingCharacters(in: .whitespaces)
+                    let address = hex.hasPrefix("0x") ? UInt64(hex.dropFirst(2), radix: 16) : UInt64(hex, radix: 16)
+                    model.udsFlash(target, firmware: udsFirmwarePath,
+                                   planPath: udsPlanPath.isEmpty ? nil : udsPlanPath,
+                                   address: address.map { Int64($0) })
+                }
+                udsFlashTargetId = nil
+            }
+            Button("Cancel", role: .cancel) { udsFlashTargetId = nil }
+        } message: {
+            Text("The workflow runs session, security access, erase, download, verify and ECU reset against the target. This cannot be cancelled once started.")
         }
     }
 
@@ -181,6 +207,64 @@ struct ContentView: View {
                     }
                 }
                 .disabled(disabled || status.targets.isEmpty)
+            }
+        }
+    }
+
+    /// The daemon's hardened UDS flash workflow: session -> security access ->
+    /// erase -> download -> verify -> reset. Either a flash plan file (carrying
+    /// its own security policy) or a start address is required; security
+    /// settings for address-based flashes come from the target's diagnostics
+    /// resource in the runtime profile.
+    private func udsFlashSection(_ status: RuntimeStatus) -> some View {
+        Section("UDS flash (hardened)") {
+            Picker("Target", selection: Binding(
+                get: { udsFlashPickerId ?? status.targets.first?.id },
+                set: { udsFlashPickerId = $0 }
+            )) {
+                ForEach(status.targets, id: \.id) { target in
+                    Text(target.name).tag(Optional(target.id))
+                }
+            }
+            HStack {
+                TextField("/path/to/firmware.hex", text: $udsFirmwarePath)
+                    .textFieldStyle(.roundedBorder)
+                TextField("plan.json (optional)", text: $udsPlanPath)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 200)
+                TextField("0x08000000", text: $udsAddress)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 130)
+                Button("Write (UDS)…", role: .destructive) {
+                    udsFlashTargetId = udsFlashPickerId ?? status.targets.first?.id
+                }
+                .disabled(disabled || udsFirmwarePath.isEmpty || status.targets.isEmpty
+                          || (udsPlanPath.isEmpty && udsAddress.isEmpty))
+            }
+            if !model.flashSteps.isEmpty {
+                ForEach(model.flashSteps, id: \.step) { step in
+                    HStack(spacing: 8) {
+                        Image(systemName: step.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .foregroundStyle(step.ok ? Color.green : Color.red)
+                        Text(step.step)
+                            .font(.caption.weight(.medium))
+                        Text(step.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer()
+                        Text("\(step.duration_ms) ms")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if let line = model.flashResultLine {
+                Text(line)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
         }
     }
@@ -407,31 +491,101 @@ struct ContentView: View {
     }
 
     private var historySection: some View {
-        Section("Recent history") {
+        Section {
             if model.history.isEmpty {
                 Text("No completed operations yet.")
                     .foregroundStyle(.secondary)
             }
             ForEach(model.history, id: \.id) { entry in
+                Button {
+                    model.loadEvidence(entry)
+                } label: {
+                    HStack {
+                        stateBadge(entry.state)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(entry.kind) · \(entry.target_id)")
+                                .font(.body.weight(.medium))
+                            Text("\(entry.completed_at_utc) · \(entry.duration_ms) ms")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if let error = entry.error {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(disabled)
+            }
+        } header: {
+            Text("Recent history")
+        } footer: {
+            Text("Click an operation to inspect its evidence.")
+        }
+    }
+
+    private var evidenceSection: some View {
+        Section {
+            if let evidence = model.evidence {
                 HStack {
-                    stateBadge(entry.state)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(entry.kind) · \(entry.target_id)")
+                        Text("\(evidence.operation_kind) · \(evidence.target_id)")
                             .font(.body.weight(.medium))
-                        Text("\(entry.completed_at_utc) · \(entry.duration_ms) ms")
+                        Text("evidence for \(evidence.operation_id) · \(evidence.created_at_utc)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if let error = entry.error {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
+                    Button("Dismiss") { model.evidence = nil }
+                        .controlSize(.small)
                 }
+                ForEach(Array(evidence.items.enumerated()), id: \.offset) { _, item in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text(item.kind)
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                            Text(item.summary)
+                                .font(.caption)
+                        }
+                        if let text = item.text, !text.isEmpty {
+                            Text(text)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                        ForEach(item.attributes, id: \.name) { attribute in
+                            HStack(spacing: 6) {
+                                Text(attribute.name)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 120, alignment: .trailing)
+                                Text(attribute.value)
+                                    .font(.caption2.monospaced())
+                                    .textSelection(.enabled)
+                                Spacer()
+                            }
+                            .padding(.leading, 10)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            } else {
+                Text("Select an operation above to see its recorded evidence.")
+                    .foregroundStyle(.secondary)
             }
+        } header: {
+            Text("Operation evidence")
         }
     }
 

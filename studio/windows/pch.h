@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <memory>
 #include <string>

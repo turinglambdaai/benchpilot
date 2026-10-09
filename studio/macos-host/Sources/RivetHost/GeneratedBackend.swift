@@ -7,7 +7,7 @@ public enum RivetGeneratedConfig {
     public static let moduleName = "backend"
     public static let entryName = "start"
     public static let displayName = "BenchPilot Studio"
-    public static let version = "1.0.0"
+    public static let version = "1.1.0"
     public static let build: Int64 = 1
     public static let identifier = "site.jrtx.benchpilot-studio"
     public static let releaseChannel = "stable"
@@ -94,6 +94,28 @@ public struct DtcReadResult: Sendable {
     }
 }
 
+public struct EvidenceAttribute: Sendable {
+    public let name: String
+    public let value: String
+    public init(name: String, value: String) {
+        self.name = name
+        self.value = value
+    }
+}
+
+public struct EvidenceItem: Sendable {
+    public let kind: String
+    public let summary: String
+    public let text: String?
+    public let attributes: [EvidenceAttribute]
+    public init(kind: String, summary: String, text: String?, attributes: [EvidenceAttribute]) {
+        self.kind = kind
+        self.summary = summary
+        self.text = text
+        self.attributes = attributes
+    }
+}
+
 public struct FlashResult: Sendable {
     public let ok: Bool
     public let bytes: Int64
@@ -104,6 +126,21 @@ public struct FlashResult: Sendable {
         self.bytes = bytes
         self.duration_ms = duration_ms
         self.error = error
+    }
+}
+
+public struct FlashStep: Sendable {
+    public let step: String
+    public let ok: Bool
+    public let detail: String
+    public let nrc: String?
+    public let duration_ms: Int64
+    public init(step: String, ok: Bool, detail: String, nrc: String?, duration_ms: Int64) {
+        self.step = step
+        self.ok = ok
+        self.detail = detail
+        self.nrc = nrc
+        self.duration_ms = duration_ms
     }
 }
 
@@ -138,6 +175,25 @@ public struct ObservationSummary: Sendable {
         self.deadline_at_utc = deadline_at_utc
         self.cancellation_requested = cancellation_requested
         self.deadline_exceeded = deadline_exceeded
+    }
+}
+
+public struct OperationEvidence: Sendable {
+    public let ok: Bool
+    public let operation_id: String
+    public let target_id: String
+    public let operation_kind: String
+    public let resource_ids: [String]
+    public let created_at_utc: String
+    public let items: [EvidenceItem]
+    public init(ok: Bool, operation_id: String, target_id: String, operation_kind: String, resource_ids: [String], created_at_utc: String, items: [EvidenceItem]) {
+        self.ok = ok
+        self.operation_id = operation_id
+        self.target_id = target_id
+        self.operation_kind = operation_kind
+        self.resource_ids = resource_ids
+        self.created_at_utc = created_at_utc
+        self.items = items
     }
 }
 
@@ -301,6 +357,23 @@ public struct SerialWindowResult: Sendable {
     }
 }
 
+public struct UdsFlashResult: Sendable {
+    public let ok: Bool
+    public let total_bytes: Int64
+    public let segment_count: Int64
+    public let duration_ms: Int64
+    public let error: String?
+    public let steps: [FlashStep]
+    public init(ok: Bool, total_bytes: Int64, segment_count: Int64, duration_ms: Int64, error: String?, steps: [FlashStep]) {
+        self.ok = ok
+        self.total_bytes = total_bytes
+        self.segment_count = segment_count
+        self.duration_ms = duration_ms
+        self.error = error
+        self.steps = steps
+    }
+}
+
 public struct UdsRequestResult: Sendable {
     public let ok: Bool
     public let positive: Bool
@@ -339,6 +412,11 @@ private func encode_ObservationSummary(_ v: ObservationSummary) -> RivetValue { 
 private func encode__List_ObservationSummary_(_ v: [ObservationSummary]) -> RivetValue { .list(v.map(encode_ObservationSummary)) }
 private func encode_OperationSummary(_ v: OperationSummary) -> RivetValue { .list([encode_String(v.id), encode_String(v.target_id), encode_String(v.kind), encode__List_String_(v.resource_ids), encode_String(v.started_at_utc), encode__Optional_String_(v.deadline_at_utc), encode_Bool(v.cancellation_requested), encode_Bool(v.deadline_exceeded)]) }
 private func encode__List_OperationSummary_(_ v: [OperationSummary]) -> RivetValue { .list(v.map(encode_OperationSummary)) }
+private func encode_EvidenceAttribute(_ v: EvidenceAttribute) -> RivetValue { .list([encode_String(v.name), encode_String(v.value)]) }
+private func encode__List_EvidenceAttribute_(_ v: [EvidenceAttribute]) -> RivetValue { .list(v.map(encode_EvidenceAttribute)) }
+private func encode_EvidenceItem(_ v: EvidenceItem) -> RivetValue { .list([encode_String(v.kind), encode_String(v.summary), encode__Optional_String_(v.text), encode__List_EvidenceAttribute_(v.attributes)]) }
+private func encode__List_EvidenceItem_(_ v: [EvidenceItem]) -> RivetValue { .list(v.map(encode_EvidenceItem)) }
+private func encode_OperationEvidence(_ v: OperationEvidence) -> RivetValue { .list([encode_Bool(v.ok), encode_String(v.operation_id), encode_String(v.target_id), encode_String(v.operation_kind), encode__List_String_(v.resource_ids), encode_String(v.created_at_utc), encode__List_EvidenceItem_(v.items)]) }
 private func encode_OperationHistoryItem(_ v: OperationHistoryItem) -> RivetValue { .list([encode_String(v.id), encode_String(v.target_id), encode_String(v.kind), encode__List_String_(v.resource_ids), encode_String(v.started_at_utc), encode_String(v.completed_at_utc), encode_Int64(v.duration_ms), encode__Optional_String_(v.deadline_at_utc), encode_String(v.state), encode__Optional_String_(v.error)]) }
 private func encode__List_OperationHistoryItem_(_ v: [OperationHistoryItem]) -> RivetValue { .list(v.map(encode_OperationHistoryItem)) }
 private func encode_PowerOnResult(_ v: PowerOnResult) -> RivetValue { .list([encode_Bool(v.ok), encode_Int64(v.voltage_millivolts), encode_Int64(v.current_microamps), encode_Bool(v.settled), encode__Optional_String_(v.error)]) }
@@ -351,6 +429,9 @@ private func encode__List_TargetSummary_(_ v: [TargetSummary]) -> RivetValue { .
 private func encode_ResourceSummary(_ v: ResourceSummary) -> RivetValue { .list([encode_String(v.id), encode_String(v.driver), encode__List_String_(v.capabilities), encode_Bool(v.registered)]) }
 private func encode__List_ResourceSummary_(_ v: [ResourceSummary]) -> RivetValue { .list(v.map(encode_ResourceSummary)) }
 private func encode_RuntimeStatus(_ v: RuntimeStatus) -> RivetValue { .list([encode_String(v.name), encode_Int64(v.schema_version), encode__Optional_String_(v.default_target), encode__List_TargetSummary_(v.targets), encode__List_ResourceSummary_(v.resources), encode__Optional_String_(v.runtime_version)]) }
+private func encode_FlashStep(_ v: FlashStep) -> RivetValue { .list([encode_String(v.step), encode_Bool(v.ok), encode_String(v.detail), encode__Optional_String_(v.nrc), encode_Int64(v.duration_ms)]) }
+private func encode__List_FlashStep_(_ v: [FlashStep]) -> RivetValue { .list(v.map(encode_FlashStep)) }
+private func encode_UdsFlashResult(_ v: UdsFlashResult) -> RivetValue { .list([encode_Bool(v.ok), encode_Int64(v.total_bytes), encode_Int64(v.segment_count), encode_Int64(v.duration_ms), encode__Optional_String_(v.error), encode__List_FlashStep_(v.steps)]) }
 private func encode_UdsRequestResult(_ v: UdsRequestResult) -> RivetValue { .list([encode_Bool(v.ok), encode_Bool(v.positive), encode_String(v.request_hex), encode__Optional_String_(v.response_hex), encode__Optional_String_(v.nrc), encode__Optional_String_(v.error)]) }
 
 private func decode_String(_ v: RivetValue) throws -> String { guard case .string(let x) = v else { throw RivetGeneratedError.typeMismatch("String") }; return x }
@@ -374,6 +455,11 @@ private func decode_ObservationSummary(_ v: RivetValue) throws -> ObservationSum
 private func decode__List_ObservationSummary_(_ v: RivetValue) throws -> [ObservationSummary] { guard case .list(let xs) = v else { throw RivetGeneratedError.typeMismatch("(List ObservationSummary)") }; return try xs.map(decode_ObservationSummary) }
 private func decode_OperationSummary(_ v: RivetValue) throws -> OperationSummary { guard case .list(let xs) = v, xs.count == 8 else { throw RivetGeneratedError.typeMismatch("OperationSummary") }; return OperationSummary(id: try decode_String(xs[0]), target_id: try decode_String(xs[1]), kind: try decode_String(xs[2]), resource_ids: try decode__List_String_(xs[3]), started_at_utc: try decode_String(xs[4]), deadline_at_utc: try decode__Optional_String_(xs[5]), cancellation_requested: try decode_Bool(xs[6]), deadline_exceeded: try decode_Bool(xs[7])) }
 private func decode__List_OperationSummary_(_ v: RivetValue) throws -> [OperationSummary] { guard case .list(let xs) = v else { throw RivetGeneratedError.typeMismatch("(List OperationSummary)") }; return try xs.map(decode_OperationSummary) }
+private func decode_EvidenceAttribute(_ v: RivetValue) throws -> EvidenceAttribute { guard case .list(let xs) = v, xs.count == 2 else { throw RivetGeneratedError.typeMismatch("EvidenceAttribute") }; return EvidenceAttribute(name: try decode_String(xs[0]), value: try decode_String(xs[1])) }
+private func decode__List_EvidenceAttribute_(_ v: RivetValue) throws -> [EvidenceAttribute] { guard case .list(let xs) = v else { throw RivetGeneratedError.typeMismatch("(List EvidenceAttribute)") }; return try xs.map(decode_EvidenceAttribute) }
+private func decode_EvidenceItem(_ v: RivetValue) throws -> EvidenceItem { guard case .list(let xs) = v, xs.count == 4 else { throw RivetGeneratedError.typeMismatch("EvidenceItem") }; return EvidenceItem(kind: try decode_String(xs[0]), summary: try decode_String(xs[1]), text: try decode__Optional_String_(xs[2]), attributes: try decode__List_EvidenceAttribute_(xs[3])) }
+private func decode__List_EvidenceItem_(_ v: RivetValue) throws -> [EvidenceItem] { guard case .list(let xs) = v else { throw RivetGeneratedError.typeMismatch("(List EvidenceItem)") }; return try xs.map(decode_EvidenceItem) }
+private func decode_OperationEvidence(_ v: RivetValue) throws -> OperationEvidence { guard case .list(let xs) = v, xs.count == 7 else { throw RivetGeneratedError.typeMismatch("OperationEvidence") }; return OperationEvidence(ok: try decode_Bool(xs[0]), operation_id: try decode_String(xs[1]), target_id: try decode_String(xs[2]), operation_kind: try decode_String(xs[3]), resource_ids: try decode__List_String_(xs[4]), created_at_utc: try decode_String(xs[5]), items: try decode__List_EvidenceItem_(xs[6])) }
 private func decode_OperationHistoryItem(_ v: RivetValue) throws -> OperationHistoryItem { guard case .list(let xs) = v, xs.count == 10 else { throw RivetGeneratedError.typeMismatch("OperationHistoryItem") }; return OperationHistoryItem(id: try decode_String(xs[0]), target_id: try decode_String(xs[1]), kind: try decode_String(xs[2]), resource_ids: try decode__List_String_(xs[3]), started_at_utc: try decode_String(xs[4]), completed_at_utc: try decode_String(xs[5]), duration_ms: try decode_Int64(xs[6]), deadline_at_utc: try decode__Optional_String_(xs[7]), state: try decode_String(xs[8]), error: try decode__Optional_String_(xs[9])) }
 private func decode__List_OperationHistoryItem_(_ v: RivetValue) throws -> [OperationHistoryItem] { guard case .list(let xs) = v else { throw RivetGeneratedError.typeMismatch("(List OperationHistoryItem)") }; return try xs.map(decode_OperationHistoryItem) }
 private func decode_PowerOnResult(_ v: RivetValue) throws -> PowerOnResult { guard case .list(let xs) = v, xs.count == 5 else { throw RivetGeneratedError.typeMismatch("PowerOnResult") }; return PowerOnResult(ok: try decode_Bool(xs[0]), voltage_millivolts: try decode_Int64(xs[1]), current_microamps: try decode_Int64(xs[2]), settled: try decode_Bool(xs[3]), error: try decode__Optional_String_(xs[4])) }
@@ -386,6 +472,9 @@ private func decode__List_TargetSummary_(_ v: RivetValue) throws -> [TargetSumma
 private func decode_ResourceSummary(_ v: RivetValue) throws -> ResourceSummary { guard case .list(let xs) = v, xs.count == 4 else { throw RivetGeneratedError.typeMismatch("ResourceSummary") }; return ResourceSummary(id: try decode_String(xs[0]), driver: try decode_String(xs[1]), capabilities: try decode__List_String_(xs[2]), registered: try decode_Bool(xs[3])) }
 private func decode__List_ResourceSummary_(_ v: RivetValue) throws -> [ResourceSummary] { guard case .list(let xs) = v else { throw RivetGeneratedError.typeMismatch("(List ResourceSummary)") }; return try xs.map(decode_ResourceSummary) }
 private func decode_RuntimeStatus(_ v: RivetValue) throws -> RuntimeStatus { guard case .list(let xs) = v, xs.count == 6 else { throw RivetGeneratedError.typeMismatch("RuntimeStatus") }; return RuntimeStatus(name: try decode_String(xs[0]), schema_version: try decode_Int64(xs[1]), default_target: try decode__Optional_String_(xs[2]), targets: try decode__List_TargetSummary_(xs[3]), resources: try decode__List_ResourceSummary_(xs[4]), runtime_version: try decode__Optional_String_(xs[5])) }
+private func decode_FlashStep(_ v: RivetValue) throws -> FlashStep { guard case .list(let xs) = v, xs.count == 5 else { throw RivetGeneratedError.typeMismatch("FlashStep") }; return FlashStep(step: try decode_String(xs[0]), ok: try decode_Bool(xs[1]), detail: try decode_String(xs[2]), nrc: try decode__Optional_String_(xs[3]), duration_ms: try decode_Int64(xs[4])) }
+private func decode__List_FlashStep_(_ v: RivetValue) throws -> [FlashStep] { guard case .list(let xs) = v else { throw RivetGeneratedError.typeMismatch("(List FlashStep)") }; return try xs.map(decode_FlashStep) }
+private func decode_UdsFlashResult(_ v: RivetValue) throws -> UdsFlashResult { guard case .list(let xs) = v, xs.count == 6 else { throw RivetGeneratedError.typeMismatch("UdsFlashResult") }; return UdsFlashResult(ok: try decode_Bool(xs[0]), total_bytes: try decode_Int64(xs[1]), segment_count: try decode_Int64(xs[2]), duration_ms: try decode_Int64(xs[3]), error: try decode__Optional_String_(xs[4]), steps: try decode__List_FlashStep_(xs[5])) }
 private func decode_UdsRequestResult(_ v: RivetValue) throws -> UdsRequestResult { guard case .list(let xs) = v, xs.count == 6 else { throw RivetGeneratedError.typeMismatch("UdsRequestResult") }; return UdsRequestResult(ok: try decode_Bool(xs[0]), positive: try decode_Bool(xs[1]), request_hex: try decode_String(xs[2]), response_hex: try decode__Optional_String_(xs[3]), nrc: try decode__Optional_String_(xs[4]), error: try decode__Optional_String_(xs[5])) }
 
 public struct RivetAPI: Sendable {
@@ -432,6 +521,10 @@ public struct RivetAPI: Sendable {
         let result = try await client.call("list-operations", arguments: [])
         return try decode__List_OperationSummary_(result)
     }
+    public func operation_evidence(operation_id: String) async throws -> OperationEvidence {
+        let result = try await client.call("operation-evidence", arguments: [encode_String(operation_id)])
+        return try decode_OperationEvidence(result)
+    }
     public func operation_history(limit: Int64) async throws -> [OperationHistoryItem] {
         let result = try await client.call("operation-history", arguments: [encode_Int64(limit)])
         return try decode__List_OperationHistoryItem_(result)
@@ -463,6 +556,10 @@ public struct RivetAPI: Sendable {
     public func status() async throws -> RuntimeStatus {
         let result = try await client.call("status", arguments: [])
         return try decode_RuntimeStatus(result)
+    }
+    public func uds_flash(target: String, firmware: String, plan_path: String?, address: Int64?, max_block_payload: Int64?, confirm_target: String?) async throws -> UdsFlashResult {
+        let result = try await client.call("uds-flash", arguments: [encode_String(target), encode_String(firmware), encode__Optional_String_(plan_path), encode__Optional_Int64_(address), encode__Optional_Int64_(max_block_payload), encode__Optional_String_(confirm_target)])
+        return try decode_UdsFlashResult(result)
     }
     public func uds_request(target: String, request_hex: String, p2_timeout_ms: Int64?, p2_star_timeout_ms: Int64?) async throws -> UdsRequestResult {
         let result = try await client.call("uds-request", arguments: [encode_String(target), encode_String(request_hex), encode__Optional_Int64_(p2_timeout_ms), encode__Optional_Int64_(p2_star_timeout_ms)])
