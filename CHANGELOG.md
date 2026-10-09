@@ -2,14 +2,23 @@
 
 All notable changes to BenchPilot are documented here.
 
-## 1.0.0 - 2026-10-02
+## 1.0.0 - 2026-10-09
 
 The Racket port completes ([ADR 0002](docs/adr/0002-racket-port.md)); the
 C#/.NET tree of the 0.5.x line is removed and the release ships from the
 Racket sources only, at full contract parity (same frozen JSON API, CLI
-exit codes and E2E suite).
+exit codes and E2E suite). The release also ships **BenchPilot Studio**,
+the first native desktop app on the Rivet line.
 
 ### Added
+
+- BenchPilot Studio (macOS, Apple Silicon DMG): a first-party SwiftUI host
+  over a typed RVT1 RPC facade with 17 endpoints and 18 record types,
+  proxying the resident daemon's loopback HTTP API — bench status and
+  readiness, power control, flash, serial console, UDS diagnostics and
+  DoIP discovery panels. A schema-compatibility gate plus a wire-level
+  backend suite (real RVT1 server against a fake daemon) pin the GUI
+  contract. Windows and Linux hosts are scaffolded and follow.
 
 - Real-hardware drivers (phase 4): SocketCAN (Linux) and PCAN-Basic
   (Windows) CAN transports behind the shared `can-iso-tp` profile driver,

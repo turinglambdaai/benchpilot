@@ -17,16 +17,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Verify tag matches the version constant
+      - name: Verify tag matches the version constants
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           VERSION="$(sed -n 's/^(define benchpilot-version "\(.*\)")$/\1/p' racket/benchpilot/protocol/local-auth.rkt | head -n1)"
+          STUDIO_VERSION="$(sed -n 's/.*(version . "\([^"]*\)").*/\1/p' studio/rivet.rktd | head -n1)"
           TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [ -z "$VERSION" ] || [ "$TAG_VERSION" != "$VERSION" ]; then
-            echo "tag $GITHUB_REF_NAME does not match benchpilot-version '$VERSION'" >&2
-            exit 1
-          fi
-          echo "release preflight: version $VERSION verified"
+          for pair in "benchpilot-version:$VERSION" "studio rivet.rktd:$STUDIO_VERSION"; do
+            name="${pair%%:*}"; value="${pair#*:}"
+            if [ -z "$value" ] || [ "$TAG_VERSION" != "$value" ]; then
+              echo "tag $GITHUB_REF_NAME does not match $name '$value'" >&2
+              exit 1
+            fi
+          done
+          grep -q "^## $TAG_VERSION" CHANGELOG.md || { echo "CHANGELOG.md has no '## $TAG_VERSION' section" >&2; exit 1; }
+          echo "release preflight: version $TAG_VERSION verified across runtime, studio and changelog"
 
   test:
     strategy:
@@ -141,8 +146,80 @@ jobs:
           retention-days: 5
           if-no-files-found: error
 
+  studio-macos:
+    needs: [preflight, test]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Checkout Rivet (pinned)
+        uses: actions/checkout@v7
+        with:
+          repository: turinglambdaai/rivet
+          ref: 6eb0837a7e294fe302b56e9a379988edfe69e3cf
+          path: rivet
+
+      - name: Setup Racket
+        uses: Bogdanp/setup-racket@v1.15
+        with:
+          # arm64-native packaging: without this the runner builds under
+          # Rosetta and ships an x86_64 app (the PodLens release bug).
+          architecture: arm64
+          distribution: full
+          variant: CS
+          version: '9.3'
+
+      - name: Install crypto package (rivet/distribution dependency)
+        run: raco pkg install --auto --no-docs crypto
+
+      - name: Link Rivet
+        run: raco pkg install --auto --no-docs --link "$GITHUB_WORKSPACE/rivet/rivet" "$GITHUB_WORKSPACE/rivet/rivet-cli"
+
+      - name: Link benchpilot runtime
+        run: raco pkg install --auto --name benchpilot --link racket
+
+      - name: Studio backend wire tests
+        working-directory: studio
+        run: raco test tests
+
+      - name: Package Studio app (includes launch smoke)
+        working-directory: studio
+        run: raco rivet package
+
+      - name: Human installer (DMG, drag to Applications)
+        working-directory: studio
+        run: |
+          volname="BenchPilot Studio"
+          dmg="BenchPilot-Studio-${GITHUB_REF_NAME}-macos.dmg"
+          staging="$(mktemp -d)/dmg-stage"
+          mkdir -p "$staging"
+          cp -R dist/benchpilot-studio.app "$staging/"
+          ln -s /Applications "$staging/Applications"
+          hdiutil create -volname "$volname" -srcfolder "$staging" -ov -format UDZO "$dmg"
+          hdiutil attach "$dmg" -mountpoint /tmp/benchpilot-studio-dmg-verify -readonly
+          test -d /tmp/benchpilot-studio-dmg-verify/benchpilot-studio.app
+          hdiutil detach /tmp/benchpilot-studio-dmg-verify
+          mv "$dmg" "$GITHUB_WORKSPACE"
+
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: BenchPilot-Studio-*-macos.dmg
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchpilot-studio-macos
+          path: BenchPilot-Studio-*-macos.dmg
+          retention-days: 5
+          if-no-files-found: error
+
   release:
-    needs: publish
+    needs: [publish, studio-macos]
     # workflow_dispatch runs validate packaging only; a release is created
     # from tag pushes alone.
     if: startsWith(github.ref, 'refs/tags/')

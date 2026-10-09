@@ -17,7 +17,7 @@ Build -> Flash -> Run -> Observe -> Diagnose -> Fix
 
 BenchPilot is **not** a CANoe clone. It does not aim to reproduce full vehicle-network simulation, CAPL, ADAS simulation or hundreds of analysis windows. CAN/CAN FD, DBC, ISO-TP, UDS and DoIP are added when they help complete the ECU development loop.
 
-> Current status: **v1.0.0 — the Racket runtime at full contract parity.** UDS diagnostics and flashing over ISO-TP/CAN and DoIP, a built-in simulated ECU for hardware-free end-to-end runs, SocketCAN/PCAN adapters and system-serial/J-Link/SCPI power drivers behind one readiness gate. Persistent evidence/artifact storage, device error taxonomy, HEX/S-record image models, UDS DTC, security providers, CAN capture + DBC signal decoding, team leases with audit, and flash hardening (fingerprint gate, in-programming power guard, recovery strategies) are in. The next gate is physical validation against a real ECU + J-Link + serial + bench supply, not adding more protocols.
+> Current status: **v1.0.0 — the Racket runtime at full contract parity, plus BenchPilot Studio.** UDS diagnostics and flashing over ISO-TP/CAN and DoIP, a built-in simulated ECU for hardware-free end-to-end runs, SocketCAN/PCAN adapters and system-serial/J-Link/SCPI power drivers behind one readiness gate. Persistent evidence/artifact storage, device error taxonomy, HEX/S-record image models, UDS DTC, security providers, CAN capture + DBC signal decoding, team leases with audit, and flash hardening (fingerprint gate, in-programming power guard, recovery strategies) are in. **BenchPilot Studio** — the first-party native desktop app on the Rivet line — ships for macOS (Apple Silicon); the Windows and Linux hosts follow. The next gate is physical validation against a real ECU + J-Link + serial + bench supply, not adding more protocols.
 
 ## Why BenchPilot?
 
@@ -148,6 +148,14 @@ on your `PATH`:
 | `benchpilotd` | resident runtime owning hardware state |
 | `benchpilot` | CLI for humans, CI and agents |
 | `benchpilot-mcp` | stdio MCP adapter for agent clients |
+
+Desktop app: download `BenchPilot-Studio-<version>-macos.dmg` from the
+[latest release](https://github.com/turinglambdaai/benchpilot/releases/latest)
+(macOS 14+, Apple Silicon), drag **BenchPilot Studio** to Applications and
+launch. Studio is a client over the same resident runtime — start
+`benchpilotd` (any CLI/MCP command does it automatically) and the app
+connects; without the runtime it shows a reachable/diagnostic state instead.
+Windows and Linux hosts follow.
 
 From source instead:
 
@@ -468,7 +476,7 @@ Near-term work remains a vertical slice rather than broad protocol coverage:
 2. validate the UDS flash workflow against real ECUs over CAN and DoIP;
 3. CAN/CAN FD capture + DBC decoding and signal observations;
 4. a richer vendor-neutral device/runtime error taxonomy and production-grade evidence/artifact references;
-5. Studio GUI over the same Runtime API.
+5. ~~Studio GUI over the same Runtime API.~~ Shipped: BenchPilot Studio v1.0.0 covers power, flash, serial, UDS diagnostics and DoIP discovery on macOS.
 
 See [ROADMAP.md](ROADMAP.md).
 
@@ -479,8 +487,8 @@ The Runtime is implemented in **Racket** (Racket CS) since v1.0.0
 [ADR 0001](docs/adr/0001-runtime-language.md)). The C#/.NET tree of the
 0.5.x line was retired in v1.0.0 after the port reached full contract
 parity: same frozen JSON API, same CLI exit codes, same E2E suite. GUI
-technology stays decoupled from the Runtime; any future Studio GUI would
-speak the same versioned local API rather than owning devices.
+technology stays decoupled from the Runtime: BenchPilot Studio speaks the
+same versioned local API rather than owning devices.
 
 ## Long-term flashing direction
 

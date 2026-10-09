@@ -1,6 +1,6 @@
 #hasheq((name . "benchpilot-studio")
         (display-name . "BenchPilot Studio")
-        (version . "0.1.0")
+        (version . "1.0.0")
         (build . 1)
         (identifier . "site.jrtx.benchpilot-studio")
         (release-channel . stable)
