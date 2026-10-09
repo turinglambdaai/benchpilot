@@ -25,7 +25,9 @@
       ],
       "settings": {
         "requestId": "0x7E0",
-        "responseId": "0x7E8"
+        "responseId": "0x7E8",
+        "securityLevel": 1,
+        "keyDeriver": "xor0x5a"
       }
     }
   },

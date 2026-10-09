@@ -497,7 +497,11 @@
     "sim.uds"
     (bench-resource "sim-diagnostics"
                     '("diagnostics")
-                    (hash "requestId" "0x7E0" "responseId" "0x7E8")))
+                    ;; securityLevel/keyDeriver drive address-based UDS
+                    ;; flashes (no plan file): the built-in ECU gates
+                    ;; erase/download behind SecurityAccess.
+                    (hash "requestId" "0x7E0" "responseId" "0x7E8"
+                          "securityLevel" 1 "keyDeriver" "xor0x5a")))
    (hash "demo"
          (bench-target
           "Demo ECU"

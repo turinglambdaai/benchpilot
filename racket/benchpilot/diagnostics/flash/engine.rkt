@@ -81,7 +81,10 @@
   (uds-timing (uds-flash-plan-p2-timeout-ms plan) (uds-flash-plan-p2-star-timeout-ms plan)))
 
 (define (encode-routine-address-and-size address size)
-  (define address-size (uds-address-length address))
+  ;; Erase/verify routine records are a fixed 4-byte address + 4-byte size —
+  ;; the shape the built-in simulator (and the 0.5.x line) froze. Addresses
+  ;; beyond 32 bits widen both fields to 8.
+  (define address-size (if (> address #xFFFFFFFF) 8 4))
   (append (for/list ([shift (in-range (* (sub1 address-size) 8) -1 -8)])
             (bitwise-and (arithmetic-shift address (- shift)) #xFF))
           (for/list ([shift (in-range 24 -1 -8)])

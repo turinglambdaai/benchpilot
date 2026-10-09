@@ -835,6 +835,46 @@
     (raise-validation (format "Flash plan segment file not found: ~a" path)))
   (file->bytes path))
 
+;; A plan file carries its own security policy; an address-based flash has
+;; none, so it inherits the securityLevel/keyDeriver declared on the bound
+;; diagnostics resource settings. Without this, security-gated ECUs (the
+;; built-in simulator included) reject the workflow with NRC 0x33.
+(define (settings-security-int v)
+  (cond
+    [(exact-integer? v) v]
+    [(string? v)
+     (define trimmed (string-trim v))
+     (if (string-prefix? trimmed "0x")
+         (string->number (substring trimmed 2) 16)
+         (string->number trimmed))]
+    [else #f]))
+
+;; Profile settings arrive with symbol keys from JSON and string keys from
+;; the built-in profile; read both.
+(define (settings-ref settings key)
+  (or (hash-ref settings key #f)
+      (hash-ref settings (symbol->string key) #f)))
+
+(define (inherit-diag-security rt t spec)
+  (if (uds-flash-plan-security-level spec)
+      spec
+      (let* ([resource-id (ci-ref (target-ref-bindings t) "diagnostics")]
+             [config (and resource-id
+                          (ci-ref (bench-profile-resources (bench-runtime-profile rt))
+                                  resource-id))]
+             [settings (or (and config (bench-resource-settings config)) (hasheq))]
+             [level (settings-security-int (settings-ref settings 'securityLevel))])
+        (if level
+            (let ([deriver (settings-ref settings 'keyDeriver)])
+              (unless deriver
+                (raise-validation
+                 (format "Diagnostics settings for '~a' set securityLevel but no keyDeriver; add keyDeriver (for example \"xor0x5a\")."
+                         resource-id)))
+              (struct-copy uds-flash-plan spec
+                           [security-level level]
+                           [key-deriver deriver]))
+            spec))))
+
 (define (target-uds-flash rt
                           t
                           firmware-path
@@ -849,7 +889,7 @@
   (validate-destructive-confirmation rt t "uds flash" confirm-target)
   (define hardening
     (build-flash-plan firmware-path plan-path address max-block-payload))
-  (define spec (uds-flash-hardening-plan hardening))
+  (define spec (inherit-diag-security rt t (uds-flash-hardening-plan hardening)))
   (when (null? (uds-flash-plan-segments spec))
     (raise-validation
      "Flash plan has no segments; provide a firmware file with --address or a plan file."))
@@ -871,7 +911,7 @@
   (define guard-trip-box (box #f))
 
   (define (run-once cancel)
-    (define result (diag-flash (binding-capability b) spec))
+    (define result (diag-flash (binding-capability b) spec cancel))
     (struct-copy uds-flash-result result [total-bytes total-bytes]))
 
   (define (flash-with-retries)
