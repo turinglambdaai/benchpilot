@@ -193,7 +193,7 @@
     (define-values (listener port)
       (let probe ()
         (define candidate (+ 44800 (random 1000)))
-        (with-handlers ([exn:fail:network? (lambda (_) (probe))])
+        (with-handlers ([exn:fail? (lambda (_) (probe))])
           (define l (tcp-listen candidate 8 #t))
           (values l candidate))))
     (define commands-box (box '()))

@@ -52,7 +52,7 @@
 (define (free-port)
   (let probe ()
     (define candidate (+ 47200 (random 2000)))
-    (with-handlers ([exn:fail:network? (lambda (_) (probe))])
+    (with-handlers ([exn:fail? (lambda (_) (probe))])
       (define l (tcp-listen candidate 8 #t))
       (tcp-close l)
       candidate)))

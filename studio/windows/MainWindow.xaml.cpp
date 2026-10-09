@@ -42,7 +42,9 @@ std::string utf8(std::filesystem::path const& path) {
   return result;
 }
 
-std::wstring wide(std::string const& text) { return winrt::to_hstring(text); }
+std::wstring wide(std::string const& text) {
+  return std::wstring(winrt::to_hstring(text).c_str());
+}
 
 rivet::windows::RacketRuntimeConfig runtime_config() {
   auto const exe = executable_path();
@@ -109,9 +111,9 @@ void MainWindow::FetchStatus() {
       text += L"\n · " + wide(target.name) + L" (" + wide(target.id) + L")";
     }
     if (auto window = weak.get()) {
-      window->target_id_ = first_target;
-      window->DispatcherQueue().TryEnqueue([weak, text] {
+      window->DispatcherQueue().TryEnqueue([weak, text, first_target] {
         if (auto current = weak.get()) {
+          current->target_id_ = first_target;
           current->InfoText().Text(text);
         }
       });
@@ -197,12 +199,13 @@ void MainWindow::PowerOn_Click(
     auto const line =
         result.ok ? L"Power on: 12 V settled"
                   : L"Power on failed: " + wide(result.error.value_or("unknown error"));
+    auto const ok = result.ok;
     if (auto window = weak.get()) {
-      window->DispatcherQueue().TryEnqueue([weak, line] {
+      window->DispatcherQueue().TryEnqueue([weak, line, ok] {
         if (auto current = weak.get()) {
           current->StatusBar().Severity(
-              result.ok ? Microsoft::UI::Xaml::Controls::InfoBarSeverity::Success
-                        : Microsoft::UI::Xaml::Controls::InfoBarSeverity::Error);
+              ok ? Microsoft::UI::Xaml::Controls::InfoBarSeverity::Success
+                 : Microsoft::UI::Xaml::Controls::InfoBarSeverity::Error);
           current->StatusBar().Message(line);
           current->SetButtonsEnabled(true);
         }
