@@ -2,6 +2,42 @@
 
 All notable changes to BenchPilot are documented here.
 
+## 1.2.0 - 2026-10-10
+
+The Studio's diagnostics slice completes: evidence inspection and the
+hardened UDS flash workflow join the panel set, and both remaining native
+hosts move onto the real API surface behind CI compile gates.
+
+### Added
+
+- Studio UDS flash panel: a `uds-flash` RPC proxies the daemon's hardened
+  `/uds/flash` workflow (session, security access, erase, download,
+  verify, ECU reset) with per-step results; the SwiftUI panel takes a
+  plan file or a start address behind a destructive confirmation and
+  renders the step checklist.
+- Studio evidence viewer: `operation-evidence` fetches an operation's
+  recorded evidence; history rows open an inspector with kind/summary
+  cards and the metadata flattened to sorted attributes.
+- Windows and Linux hosts: rebuilt from the counter scaffold onto the
+  real API surface (status and targets, power control, DTC read, recent
+  history) with each platform's embedded-runtime boot preserved. ci.yml
+  gates both hosts on every change — a full msbuild/WinUI 3 link on
+  Windows and a g++ semantics pass over every translation unit on Linux —
+  and pins the rivet revision the schema gate runs against. The wire
+  suite grows to 113 checks; the schema baseline extends additively.
+
+### Fixed
+
+- Address-based UDS flashes (no plan file) now complete: the runtime no
+  longer drops the cancellation token on `diag-flash`, planless plans
+  inherit `securityLevel`/`keyDeriver` from the target's diagnostics
+  resource settings, and erase/verify routine records encode a fixed
+  4-byte address + 4-byte size as the 0.5.x line froze. Verified end to
+  end on the simulated ECU: all six workflow steps positive.
+- Package tests accept any failure when probing for a free port — Windows
+  runners deny binds inside excluded port ranges (win_err=10013) without
+  raising `exn:fail:network`.
+
 ## 1.1.0 - 2026-10-09
 
 BenchPilot Studio gains DTC visibility — the first slice of the
