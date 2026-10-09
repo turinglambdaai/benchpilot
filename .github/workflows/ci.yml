@@ -100,11 +100,10 @@ jobs:
       - name: Locate Racket runtime files
         shell: bash
         run: |
-          DLL_DIR="$(racket -e '(display (path->string (system-library-subpath #f)))')"
-          LIB_DIR="$(dirname "$DLL_DIR")"
-          PREFIX="$(dirname "$LIB_DIR")"
+          RACKET_BIN="$(readlink -f "$(which racket)")"
+          PREFIX="$(dirname "$(dirname "$RACKET_BIN")")"
           echo "RIVET_RACKET_INCLUDE=$PREFIX/include" >> "$GITHUB_ENV"
-          echo "RIVET_RACKET_LIB_DIR=$LIB_DIR" >> "$GITHUB_ENV"
+          echo "RIVET_RACKET_LIB_DIR=$PREFIX/lib" >> "$GITHUB_ENV"
           find "$PREFIX" -maxdepth 3 \( -name "libracketcs*" -o -name "*.boot" \) | head -8
       - name: Install crypto package
         run: raco pkg install --auto --no-docs crypto
