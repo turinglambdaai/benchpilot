@@ -2,6 +2,22 @@
 
 All notable changes to BenchPilot are documented here.
 
+## 1.1.0 - 2026-10-09
+
+BenchPilot Studio gains DTC visibility — the first slice of the
+diagnostics deepening work.
+
+### Added
+
+- Studio DTC panel: `dtc-read`/`dtc-clear` typed RPCs proxy the daemon's
+  `/uds/request` with the same 0x19/0x14 request bytes the CLI builds and
+  parse responses with the shared protocol primitives, so the panel and
+  `benchpilot uds dtc` cannot drift. The SwiftUI diagnostics panel renders
+  the DTC memory with the availability mask and the ISO 14229 status byte
+  decoded into plain-language flags; clearing sits behind a confirmation
+  dialog. The wire suite grows to 88 checks and the schema baseline
+  extends additively.
+
 ## 1.0.0 - 2026-10-09
 
 The Racket port completes ([ADR 0002](docs/adr/0002-racket-port.md)); the
