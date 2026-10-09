@@ -7,7 +7,7 @@ public enum RivetGeneratedConfig {
     public static let moduleName = "backend"
     public static let entryName = "start"
     public static let displayName = "BenchPilot Studio"
-    public static let version = "0.1.0"
+    public static let version = "1.0.0"
     public static let build: Int64 = 1
     public static let identifier = "site.jrtx.benchpilot-studio"
     public static let releaseChannel = "stable"
@@ -53,6 +53,43 @@ public struct DoipDiscovery: Sendable {
     public init(ok: Bool, vehicles: [DoipVehicle], error: String?) {
         self.ok = ok
         self.vehicles = vehicles
+        self.error = error
+    }
+}
+
+public struct DtcClearResult: Sendable {
+    public let ok: Bool
+    public let positive: Bool
+    public let error: String?
+    public init(ok: Bool, positive: Bool, error: String?) {
+        self.ok = ok
+        self.positive = positive
+        self.error = error
+    }
+}
+
+public struct DtcEntry: Sendable {
+    public let dtc: String
+    public let status: String
+    public init(dtc: String, status: String) {
+        self.dtc = dtc
+        self.status = status
+    }
+}
+
+public struct DtcReadResult: Sendable {
+    public let ok: Bool
+    public let positive: Bool
+    public let available_mask: String?
+    public let dtcs: [DtcEntry]
+    public let nrc: String?
+    public let error: String?
+    public init(ok: Bool, positive: Bool, available_mask: String?, dtcs: [DtcEntry], nrc: String?, error: String?) {
+        self.ok = ok
+        self.positive = positive
+        self.available_mask = available_mask
+        self.dtcs = dtcs
+        self.nrc = nrc
         self.error = error
     }
 }
@@ -290,6 +327,11 @@ private func encode_Int64(_ v: Int64) -> RivetValue { .int64(v) }
 private func encode_DoipVehicle(_ v: DoipVehicle) -> RivetValue { .list([encode_String(v.vin), encode_String(v.logical_address), encode__Optional_String_(v.ip_address)]) }
 private func encode__List_DoipVehicle_(_ v: [DoipVehicle]) -> RivetValue { .list(v.map(encode_DoipVehicle)) }
 private func encode_DoipDiscovery(_ v: DoipDiscovery) -> RivetValue { .list([encode_Bool(v.ok), encode__List_DoipVehicle_(v.vehicles), encode__Optional_String_(v.error)]) }
+private func encode__Optional_Int64_(_ v: Int64?) -> RivetValue { v.map(encode_Int64) ?? .null }
+private func encode_DtcClearResult(_ v: DtcClearResult) -> RivetValue { .list([encode_Bool(v.ok), encode_Bool(v.positive), encode__Optional_String_(v.error)]) }
+private func encode_DtcEntry(_ v: DtcEntry) -> RivetValue { .list([encode_String(v.dtc), encode_String(v.status)]) }
+private func encode__List_DtcEntry_(_ v: [DtcEntry]) -> RivetValue { .list(v.map(encode_DtcEntry)) }
+private func encode_DtcReadResult(_ v: DtcReadResult) -> RivetValue { .list([encode_Bool(v.ok), encode_Bool(v.positive), encode__Optional_String_(v.available_mask), encode__List_DtcEntry_(v.dtcs), encode__Optional_String_(v.nrc), encode__Optional_String_(v.error)]) }
 private func encode_ActionResult(_ v: ActionResult) -> RivetValue { .list([encode_Bool(v.ok), encode__Optional_String_(v.error)]) }
 private func encode_FlashResult(_ v: FlashResult) -> RivetValue { .list([encode_Bool(v.ok), encode_Int64(v.bytes), encode_Int64(v.duration_ms), encode__Optional_String_(v.error)]) }
 private func encode__List_String_(_ v: [String]) -> RivetValue { .list(v.map(encode_String)) }
@@ -300,7 +342,6 @@ private func encode__List_OperationSummary_(_ v: [OperationSummary]) -> RivetVal
 private func encode_OperationHistoryItem(_ v: OperationHistoryItem) -> RivetValue { .list([encode_String(v.id), encode_String(v.target_id), encode_String(v.kind), encode__List_String_(v.resource_ids), encode_String(v.started_at_utc), encode_String(v.completed_at_utc), encode_Int64(v.duration_ms), encode__Optional_String_(v.deadline_at_utc), encode_String(v.state), encode__Optional_String_(v.error)]) }
 private func encode__List_OperationHistoryItem_(_ v: [OperationHistoryItem]) -> RivetValue { .list(v.map(encode_OperationHistoryItem)) }
 private func encode_PowerOnResult(_ v: PowerOnResult) -> RivetValue { .list([encode_Bool(v.ok), encode_Int64(v.voltage_millivolts), encode_Int64(v.current_microamps), encode_Bool(v.settled), encode__Optional_String_(v.error)]) }
-private func encode__Optional_Int64_(_ v: Int64?) -> RivetValue { v.map(encode_Int64) ?? .null }
 private func encode_SerialOpenResult(_ v: SerialOpenResult) -> RivetValue { .list([encode_Bool(v.ok), encode_String(v.port), encode_Int64(v.baud), encode__Optional_String_(v.error), encode__Optional_String_(v.observation_id)]) }
 private func encode_SerialSendResult(_ v: SerialSendResult) -> RivetValue { .list([encode_Bool(v.ok), encode__Optional_String_(v.error), encode__Optional_String_(v.observation_id)]) }
 private func encode_SerialWaitResult(_ v: SerialWaitResult) -> RivetValue { .list([encode_Bool(v.ok), encode_Bool(v.matched), encode__Optional_String_(v.matched_line), encode_Int64(v.elapsed_ms), encode__Optional_String_(v.error), encode__Optional_String_(v.observation_id)]) }
@@ -321,6 +362,11 @@ private func decode_Int64(_ v: RivetValue) throws -> Int64 { guard case .int64(l
 private func decode_DoipVehicle(_ v: RivetValue) throws -> DoipVehicle { guard case .list(let xs) = v, xs.count == 3 else { throw RivetGeneratedError.typeMismatch("DoipVehicle") }; return DoipVehicle(vin: try decode_String(xs[0]), logical_address: try decode_String(xs[1]), ip_address: try decode__Optional_String_(xs[2])) }
 private func decode__List_DoipVehicle_(_ v: RivetValue) throws -> [DoipVehicle] { guard case .list(let xs) = v else { throw RivetGeneratedError.typeMismatch("(List DoipVehicle)") }; return try xs.map(decode_DoipVehicle) }
 private func decode_DoipDiscovery(_ v: RivetValue) throws -> DoipDiscovery { guard case .list(let xs) = v, xs.count == 3 else { throw RivetGeneratedError.typeMismatch("DoipDiscovery") }; return DoipDiscovery(ok: try decode_Bool(xs[0]), vehicles: try decode__List_DoipVehicle_(xs[1]), error: try decode__Optional_String_(xs[2])) }
+private func decode__Optional_Int64_(_ v: RivetValue) throws -> Int64? { if case .null = v { return nil }; return try decode_Int64(v) }
+private func decode_DtcClearResult(_ v: RivetValue) throws -> DtcClearResult { guard case .list(let xs) = v, xs.count == 3 else { throw RivetGeneratedError.typeMismatch("DtcClearResult") }; return DtcClearResult(ok: try decode_Bool(xs[0]), positive: try decode_Bool(xs[1]), error: try decode__Optional_String_(xs[2])) }
+private func decode_DtcEntry(_ v: RivetValue) throws -> DtcEntry { guard case .list(let xs) = v, xs.count == 2 else { throw RivetGeneratedError.typeMismatch("DtcEntry") }; return DtcEntry(dtc: try decode_String(xs[0]), status: try decode_String(xs[1])) }
+private func decode__List_DtcEntry_(_ v: RivetValue) throws -> [DtcEntry] { guard case .list(let xs) = v else { throw RivetGeneratedError.typeMismatch("(List DtcEntry)") }; return try xs.map(decode_DtcEntry) }
+private func decode_DtcReadResult(_ v: RivetValue) throws -> DtcReadResult { guard case .list(let xs) = v, xs.count == 6 else { throw RivetGeneratedError.typeMismatch("DtcReadResult") }; return DtcReadResult(ok: try decode_Bool(xs[0]), positive: try decode_Bool(xs[1]), available_mask: try decode__Optional_String_(xs[2]), dtcs: try decode__List_DtcEntry_(xs[3]), nrc: try decode__Optional_String_(xs[4]), error: try decode__Optional_String_(xs[5])) }
 private func decode_ActionResult(_ v: RivetValue) throws -> ActionResult { guard case .list(let xs) = v, xs.count == 2 else { throw RivetGeneratedError.typeMismatch("ActionResult") }; return ActionResult(ok: try decode_Bool(xs[0]), error: try decode__Optional_String_(xs[1])) }
 private func decode_FlashResult(_ v: RivetValue) throws -> FlashResult { guard case .list(let xs) = v, xs.count == 4 else { throw RivetGeneratedError.typeMismatch("FlashResult") }; return FlashResult(ok: try decode_Bool(xs[0]), bytes: try decode_Int64(xs[1]), duration_ms: try decode_Int64(xs[2]), error: try decode__Optional_String_(xs[3])) }
 private func decode__List_String_(_ v: RivetValue) throws -> [String] { guard case .list(let xs) = v else { throw RivetGeneratedError.typeMismatch("(List String)") }; return try xs.map(decode_String) }
@@ -331,7 +377,6 @@ private func decode__List_OperationSummary_(_ v: RivetValue) throws -> [Operatio
 private func decode_OperationHistoryItem(_ v: RivetValue) throws -> OperationHistoryItem { guard case .list(let xs) = v, xs.count == 10 else { throw RivetGeneratedError.typeMismatch("OperationHistoryItem") }; return OperationHistoryItem(id: try decode_String(xs[0]), target_id: try decode_String(xs[1]), kind: try decode_String(xs[2]), resource_ids: try decode__List_String_(xs[3]), started_at_utc: try decode_String(xs[4]), completed_at_utc: try decode_String(xs[5]), duration_ms: try decode_Int64(xs[6]), deadline_at_utc: try decode__Optional_String_(xs[7]), state: try decode_String(xs[8]), error: try decode__Optional_String_(xs[9])) }
 private func decode__List_OperationHistoryItem_(_ v: RivetValue) throws -> [OperationHistoryItem] { guard case .list(let xs) = v else { throw RivetGeneratedError.typeMismatch("(List OperationHistoryItem)") }; return try xs.map(decode_OperationHistoryItem) }
 private func decode_PowerOnResult(_ v: RivetValue) throws -> PowerOnResult { guard case .list(let xs) = v, xs.count == 5 else { throw RivetGeneratedError.typeMismatch("PowerOnResult") }; return PowerOnResult(ok: try decode_Bool(xs[0]), voltage_millivolts: try decode_Int64(xs[1]), current_microamps: try decode_Int64(xs[2]), settled: try decode_Bool(xs[3]), error: try decode__Optional_String_(xs[4])) }
-private func decode__Optional_Int64_(_ v: RivetValue) throws -> Int64? { if case .null = v { return nil }; return try decode_Int64(v) }
 private func decode_SerialOpenResult(_ v: RivetValue) throws -> SerialOpenResult { guard case .list(let xs) = v, xs.count == 5 else { throw RivetGeneratedError.typeMismatch("SerialOpenResult") }; return SerialOpenResult(ok: try decode_Bool(xs[0]), port: try decode_String(xs[1]), baud: try decode_Int64(xs[2]), error: try decode__Optional_String_(xs[3]), observation_id: try decode__Optional_String_(xs[4])) }
 private func decode_SerialSendResult(_ v: RivetValue) throws -> SerialSendResult { guard case .list(let xs) = v, xs.count == 3 else { throw RivetGeneratedError.typeMismatch("SerialSendResult") }; return SerialSendResult(ok: try decode_Bool(xs[0]), error: try decode__Optional_String_(xs[1]), observation_id: try decode__Optional_String_(xs[2])) }
 private func decode_SerialWaitResult(_ v: RivetValue) throws -> SerialWaitResult { guard case .list(let xs) = v, xs.count == 6 else { throw RivetGeneratedError.typeMismatch("SerialWaitResult") }; return SerialWaitResult(ok: try decode_Bool(xs[0]), matched: try decode_Bool(xs[1]), matched_line: try decode__Optional_String_(xs[2]), elapsed_ms: try decode_Int64(xs[3]), error: try decode__Optional_String_(xs[4]), observation_id: try decode__Optional_String_(xs[5])) }
@@ -358,6 +403,14 @@ public struct RivetAPI: Sendable {
     public func doip_discover(window_ms: Int64) async throws -> DoipDiscovery {
         let result = try await client.call("doip-discover", arguments: [encode_Int64(window_ms)])
         return try decode_DoipDiscovery(result)
+    }
+    public func dtc_clear(target: String, group: Int64?) async throws -> DtcClearResult {
+        let result = try await client.call("dtc-clear", arguments: [encode_String(target), encode__Optional_Int64_(group)])
+        return try decode_DtcClearResult(result)
+    }
+    public func dtc_read(target: String, status_mask: Int64?) async throws -> DtcReadResult {
+        let result = try await client.call("dtc-read", arguments: [encode_String(target), encode__Optional_Int64_(status_mask)])
+        return try decode_DtcReadResult(result)
     }
     public func emergency_off(target: String) async throws -> ActionResult {
         let result = try await client.call("emergency-off", arguments: [encode_String(target)])

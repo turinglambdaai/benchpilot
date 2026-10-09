@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var serialPattern = ""
     @State private var serialTimeout = "10000"
     @State private var udsRequestHex = ""
+    @State private var dtcClearTargetId: String?
     @State private var flashTargetId: String?
     @State private var pollTask: Task<Void, Never>?
 
@@ -49,6 +50,21 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) { flashTargetId = nil }
         } message: {
             Text("The ECU will be erased and reprogrammed. This cannot be cancelled once started.")
+        }
+        .confirmationDialog(
+            "Clear DTC memory on \(dtcClearTargetId ?? "")?",
+            isPresented: Binding(get: { dtcClearTargetId != nil }, set: { if !$0 { dtcClearTargetId = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Clear DTCs", role: .destructive) {
+                if let id = dtcClearTargetId, let target = model.runtime?.targets.first(where: { $0.id == id }) {
+                    model.dtcClear(target)
+                }
+                dtcClearTargetId = nil
+            }
+            Button("Cancel", role: .cancel) { dtcClearTargetId = nil }
+        } message: {
+            Text("ClearDiagnosticInformation erases every stored DTC on the ECU. This cannot be undone.")
         }
     }
 
@@ -266,7 +282,61 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Divider()
+            HStack(spacing: 8) {
+                Text("DTC memory")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Read DTCs") {
+                    withDiagTarget { model.dtcRead($0) }
+                }
+                .disabled(disabled || status.targets.isEmpty)
+                Button("Clear DTCs", role: .destructive) {
+                    dtcClearTargetId = diagTargetId ?? status.targets.first?.id
+                }
+                .disabled(disabled || status.targets.isEmpty)
+            }
+            if let mask = model.dtcAvailableMask {
+                Text("availability mask \(mask)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(model.dtcs, id: \.dtc) { entry in
+                Text(dtcStatusDescription(entry.status))
+                    .font(.caption.monospaced())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(.leading, 8)
+            }
+            .padding(.vertical, 2)
+            if let message = model.dtcMessage {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
+    }
+
+    /// ISO 14229 DTC status byte, decoded to the family's plain-language
+    /// flags; 0x00 renders as an empty store.
+    private func dtcStatusDescription(_ statusHex: String) -> String {
+        guard let value = UInt8(statusHex.dropFirst(2), radix: 16) else {
+            return statusHex
+        }
+        if value == 0 {
+            return "\(statusHex) · no faults stored"
+        }
+        var flags: [String] = []
+        if value & 0x01 != 0 { flags.append("testFailed") }
+        if value & 0x02 != 0 { flags.append("failedThisOperationCycle") }
+        if value & 0x04 != 0 { flags.append("pending") }
+        if value & 0x08 != 0 { flags.append("confirmed") }
+        if value & 0x10 != 0 { flags.append("testNotCompletedSinceLastClear") }
+        if value & 0x20 != 0 { flags.append("testFailedSinceLastClear") }
+        if value & 0x40 != 0 { flags.append("testNotCompletedThisOperationCycle") }
+        if value & 0x80 != 0 { flags.append("warningIndicatorRequested") }
+        return "\(statusHex) · " + flags.joined(separator: ", ")
     }
 
     private func withDiagTarget(_ body: (TargetSummary) -> Void) {

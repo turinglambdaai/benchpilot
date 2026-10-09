@@ -37,6 +37,9 @@ final class AppModel: ObservableObject {
     @Published var udsResponseHex: String?
     @Published var udsNrc: String?
     @Published var doipVehicles: [DoipVehicle] = []
+    @Published var dtcs: [DtcEntry] = []
+    @Published var dtcAvailableMask: String?
+    @Published var dtcMessage: String?
 
     private var backend: EmbeddedRacketBackend?
 
@@ -210,6 +213,30 @@ final class AppModel: ObservableObject {
         perform("Discovering DoIP vehicles…") { api in
             let result = try await api.doip_discover(window_ms: 800)
             self.doipVehicles = result.vehicles
+        }
+    }
+
+    func dtcRead(_ target: TargetSummary) {
+        perform("Reading DTCs from \(target.name)…") { api in
+            let result = try await api.dtc_read(target: target.id, status_mask: nil)
+            self.dtcs = result.dtcs
+            self.dtcAvailableMask = result.available_mask
+            self.dtcMessage = result.positive
+                ? nil
+                : (result.error ?? "The ECU did not answer the DTC read (NRC or unsupported).")
+        }
+    }
+
+    func dtcClear(_ target: TargetSummary) {
+        perform("Clearing DTCs on \(target.name)…") { api in
+            let result = try await api.dtc_clear(target: target.id, group: nil)
+            if result.positive {
+                self.dtcs = []
+                self.dtcAvailableMask = nil
+                self.dtcMessage = "DTC memory cleared."
+            } else {
+                self.dtcMessage = result.error ?? "The ECU did not accept the clear request."
+            }
         }
     }
 

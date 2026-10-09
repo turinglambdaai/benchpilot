@@ -11,8 +11,18 @@
 ;; integer units (volts -> millivolts, mA -> microamps).
 
 (require rivet/backend
+         racket/format
          racket/string
-         "daemon-client.rkt")
+         "daemon-client.rkt"
+         ;; Package-name requires: protocol.rkt itself pulls
+         ;; benchpilot/core/contracts as a library, and the module embedder
+         ;; rejects the same file reachable through both a library and a
+         ;; relative path.
+         (only-in benchpilot/core/contracts hex-parse bytes->hex)
+         (only-in benchpilot/diagnostics/uds/protocol
+                  uds-read-dtcs
+                  uds-clear-dtcs
+                  parse-dtc-response))
 
 (provide start)
 
@@ -125,6 +135,23 @@
 (define-record DoipDiscovery
   ([ok : Bool]
    [vehicles : (List DoipVehicle)]
+   [error : (Optional String)]))
+
+(define-record DtcEntry
+  ([dtc : String]
+   [status : String]))
+
+(define-record DtcReadResult
+  ([ok : Bool]
+   [positive : Bool]
+   [available-mask : (Optional String)]
+   [dtcs : (List DtcEntry)]
+   [nrc : (Optional String)]
+   [error : (Optional String)]))
+
+(define-record DtcClearResult
+  ([ok : Bool]
+   [positive : Bool]
    [error : (Optional String)]))
 
 (define-record ObservationSummary
@@ -364,6 +391,43 @@
                                      (jopt v 'ipAddress)))
                       (jlist j 'vehicles))
                  (jopt j 'error)))
+
+;; DTC memory (UDS 0x19/0x14). The request bytes mirror `benchpilot uds dtc`
+;; exactly and the response parse reuses the same protocol primitives, so the
+;; panel and the CLI cannot drift apart.
+(define-rpc (dtc-read [target : String]
+                      [status-mask : (Optional Int64)]
+                      : DtcReadResult)
+  (define mask (if (void? status-mask) #xFF (bitwise-and status-mask #xFF)))
+  (define j (api-post "/uds/request"
+                      (hasheq 'target target)
+                      (hasheq 'requestHex
+                              (bytes->hex (uds-read-dtcs mask)))))
+  (if (not (jbool j 'positive))
+      (DtcReadResult (jbool j 'ok) #f #f '() (jopt j 'nrc) (jopt j 'error))
+      (let ([parsed (parse-dtc-response (hex-parse (jstr j 'responseHex)))])
+        (if (eq? parsed 'unsupported)
+            (DtcReadResult (jbool j 'ok) #f #f '() (jopt j 'nrc)
+                           "ECU does not support DTC read (NRC or odd response).")
+            (DtcReadResult (jbool j 'ok) #t
+                           (format "0x~a"
+                                   (string-upcase
+                                    (~r (hash-ref parsed 'availableMask)
+                                        #:base 16 #:min-width 2 #:pad-string "0")))
+                           (for/list ([d (in-list (hash-ref parsed 'dtcs '()))])
+                             (DtcEntry (hash-ref d 'dtc) (hash-ref d 'status)))
+                           (jopt j 'nrc)
+                           (jopt j 'error))))))
+
+(define-rpc (dtc-clear [target : String]
+                       [group : (Optional Int64)]
+                       : DtcClearResult)
+  (define grp (if (void? group) #xFFFFFF (bitwise-and group #xFFFFFF)))
+  (define j (api-post "/uds/request"
+                      (hasheq 'target target)
+                      (hasheq 'requestHex
+                              (bytes->hex (uds-clear-dtcs grp)))))
+  (DtcClearResult (jbool j 'ok) (jbool j 'positive) (jopt j 'error)))
 
 (define-rpc (list-observations : (List ObservationSummary))
   (map j->observation (jlist (api-get "/observations") 'observations)))

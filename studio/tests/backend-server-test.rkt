@@ -136,8 +136,19 @@
     [(and (string=? method "POST") (string-suffix? target "/uds/request"))
      (if (regexp-match? #rx"target=boom" query)
          (values 409 (hasheq 'code "busy" 'error "resource busy"))
-         (values 200 (hasheq 'ok #t 'positive #t 'requestHex "22F190"
-                             'responseHex "62F1905431 3930" 'nrc 'null 'error 'null)))]
+         (let ([hex (or (hash-ref body 'requestHex #f) "")])
+           (cond
+             ;; ReadDTCInformation 19 02 <mask>: 59 02 FF 01 08 70 2F
+             [(string-prefix? hex "1902")
+              (values 200 (hasheq 'ok #t 'positive #t 'requestHex hex
+                                  'responseHex "02FF0108702F" 'nrc 'null 'error 'null))]
+             ;; ClearDiagnosticInformation 14 <group>: bare positive 0x54.
+             [(string-prefix? hex "14")
+              (values 200 (hasheq 'ok #t 'positive #t 'requestHex hex
+                                  'responseHex 'null 'nrc 'null 'error 'null))]
+             [else
+              (values 200 (hasheq 'ok #t 'positive #t 'requestHex "22F190"
+                                  'responseHex "62F1905431 3930" 'nrc 'null 'error 'null))])))]
     [(and (string=? method "POST") (string-suffix? target "/doip/discover"))
      (values 200 (hasheq 'ok #t
                          'vehicles (list (hasheq 'vin "VIN123" 'logicalAddress "0x0E80" 'ipAddress "169.254.1.10")
@@ -343,6 +354,37 @@
 (check-true (list-ref obscancel-wire 0))
 (check-equal? (list-ref obscancel-wire 1) "obs-1")
 (check-true (list-ref obscancel-wire 2))
+
+;; --- 8. DTC read/clear (0x19/0x14) ---------------------------------------------
+
+;; Default mask: the request hex is 1902FF and the fake ECU answers with one
+;; stored DTC (0x010870, status 0x2F) and availability mask 0xFF.
+(define-values (dtc-kind dtc-wire) (call "dtc-read" "ecu-main" (void)))
+(check-equal? dtc-kind 'response)
+(check-true (list-ref dtc-wire 0))                           ; ok
+(check-true (list-ref dtc-wire 1))                           ; positive
+(check-equal? (list-ref dtc-wire 2) "0xFF")                  ; available-mask
+(define dtc-entries (list-ref dtc-wire 3))
+(check-equal? (length dtc-entries) 1)
+(check-equal? (list-ref (car dtc-entries) 0) "0x010870")     ; dtc number
+(check-equal? (list-ref (car dtc-entries) 1) "0x2f")         ; status byte
+
+;; Explicit status mask rides through to the request bytes.
+(define-values (dtcmask-kind dtcmask-wire) (call "dtc-read" "ecu-main" 254))
+(check-equal? dtcmask-kind 'response)
+(check-true (list-ref dtcmask-wire 1))
+
+;; A negative ECU answer surfaces as positive=#f with the daemon's error.
+(define-values (dtcneg-kind _) (call "dtc-read" "boom" (void)))
+(check-equal? dtcneg-kind 'error)
+
+;; Clear: positive by construction; the record carries no payload beyond
+;; ok/positive/error (0x54 answers bare).
+(define-values (dtcclear-kind dtcclear-wire) (call "dtc-clear" "ecu-main" (void)))
+(check-equal? dtcclear-kind 'response)
+(check-true (list-ref dtcclear-wire 0))                      ; ok
+(check-true (list-ref dtcclear-wire 1))                      ; positive
+(check-true (void? (list-ref dtcclear-wire 2)))              ; error absent
 
 ;; --- shutdown ----------------------------------------------------------------
 

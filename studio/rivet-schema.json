@@ -134,6 +134,113 @@
           }
         },
         {
+          "name": "positive",
+          "type": {
+            "kind": "scalar",
+            "name": "Bool"
+          }
+        },
+        {
+          "name": "error",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "String"
+            },
+            "kind": "optional"
+          }
+        }
+      ],
+      "name": "DtcClearResult"
+    },
+    {
+      "fields": [
+        {
+          "name": "dtc",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        }
+      ],
+      "name": "DtcEntry"
+    },
+    {
+      "fields": [
+        {
+          "name": "ok",
+          "type": {
+            "kind": "scalar",
+            "name": "Bool"
+          }
+        },
+        {
+          "name": "positive",
+          "type": {
+            "kind": "scalar",
+            "name": "Bool"
+          }
+        },
+        {
+          "name": "available-mask",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "String"
+            },
+            "kind": "optional"
+          }
+        },
+        {
+          "name": "dtcs",
+          "type": {
+            "element": {
+              "kind": "record",
+              "name": "DtcEntry"
+            },
+            "kind": "list"
+          }
+        },
+        {
+          "name": "nrc",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "String"
+            },
+            "kind": "optional"
+          }
+        },
+        {
+          "name": "error",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "String"
+            },
+            "kind": "optional"
+          }
+        }
+      ],
+      "name": "DtcReadResult"
+    },
+    {
+      "fields": [
+        {
+          "name": "ok",
+          "type": {
+            "kind": "scalar",
+            "name": "Bool"
+          }
+        },
+        {
           "name": "bytes",
           "type": {
             "kind": "scalar",
@@ -871,6 +978,58 @@
       "result": {
         "kind": "record",
         "name": "DoipDiscovery"
+      }
+    },
+    {
+      "arguments": [
+        {
+          "name": "target",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "group",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "Int64"
+            },
+            "kind": "optional"
+          }
+        }
+      ],
+      "name": "dtc-clear",
+      "result": {
+        "kind": "record",
+        "name": "DtcClearResult"
+      }
+    },
+    {
+      "arguments": [
+        {
+          "name": "target",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "status-mask",
+          "type": {
+            "element": {
+              "kind": "scalar",
+              "name": "Int64"
+            },
+            "kind": "optional"
+          }
+        }
+      ],
+      "name": "dtc-read",
+      "result": {
+        "kind": "record",
+        "name": "DtcReadResult"
       }
     },
     {
