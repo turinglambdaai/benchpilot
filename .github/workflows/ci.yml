@@ -104,14 +104,21 @@ jobs:
         run: |
           BIN="$(readlink -f "$(which racket)")"
           PREFIX="$(dirname "$(dirname "$BIN")")"
-          echo "RIVET_RACKET_INCLUDE=$PREFIX/include" >> "$GITHUB_ENV"
-          ls "$PREFIX/include" 2>/dev/null | head -5 \
-            || { echo "no include dir under $PREFIX" >&2; exit 1; }
+          for candidate in "$PREFIX/include/racket" "$PREFIX/include"; do
+            if [ -f "$candidate/chezscheme.h" ]; then
+              echo "RIVET_RACKET_INCLUDE=$candidate" >> "$GITHUB_ENV"
+              echo "resolved: $candidate"
+              exit 0
+            fi
+          done
+          echo "chezscheme.h not found under $PREFIX" >&2
+          ls "$PREFIX/include" >&2 || true
+          exit 1
       - name: Compile Linux host
         shell: bash
         run: |
           g++ -std=c++20 -fsyntax-only -Wall -Wextra -Wpedantic \
-            -I studio \
+            -I studio/linux \
             -I rivet/platform/linux/runtime \
             -I rivet/platform/linux/system \
             -I rivet/runtime/include \
