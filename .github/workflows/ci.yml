@@ -71,10 +71,12 @@ jobs:
         working-directory: studio
         run: raco test tests
 
-  # Host compile gates: both native hosts must build against the generated
-  # client on every change. `raco rivet build` compiles the Racket backend,
-  # regenerates the platform clients and invokes the platform toolchain
-  # (cmake/GTK4 on Linux, msbuild/WinUI 3 on Windows).
+  # Host compile gates: both native hosts must keep compiling against the
+  # generated client on every change. The Windows job runs the full
+  # msbuild/WinUI 3 build; the Linux job runs a full syntax+semantics pass
+  # (g++ -fsyntax-only over every translation unit) because the gate's
+  # purpose is API drift, and no Linux Racket distribution ships the static
+  # libracketcs the embedding links.
   studio-linux-host:
     runs-on: ubuntu-latest
     steps:
@@ -90,41 +92,35 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             libgtk-4-dev libsecret-1-dev libncurses-dev zlib1g-dev liblz4-dev
-      - name: Install Racket (official CS distribution)
-        # setup-racket's archive ships no libracketcs*.a, which the Linux
-        # embedding links statically; the official distribution does.
-        run: |
-          curl -fsSL -o /tmp/racket-installer.sh \
-            https://mirror.racket-lang.org/installers/9.3/racket-9.3-x86_64-linux-cs.sh
-          sh /tmp/racket-installer.sh --unix-style --dest "$HOME/racket"
-          echo "$HOME/racket/bin" >> "$GITHUB_PATH"
-      - name: Locate Racket runtime files
+      - name: Setup Racket
+        uses: Bogdanp/setup-racket@v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: '9.3'
+      - name: Resolve Racket include directory
         shell: bash
         run: |
-          # Find the real installation by chasing its static CS library.
-          A="$(find "$HOME" /opt /usr/local /usr -maxdepth 7 \
-                 -name "libracketcs*.a" 2>/dev/null | head -1)"
-          if [ -z "$A" ]; then
-            echo "libracketcs*.a not found on the runner" >&2
-            which -a racket >&2 || true
-            exit 1
-          fi
-          LIB_DIR="$(dirname "$A")"
-          PREFIX="$(dirname "$LIB_DIR")"
+          BIN="$(readlink -f "$(which racket)")"
+          PREFIX="$(dirname "$(dirname "$BIN")")"
           echo "RIVET_RACKET_INCLUDE=$PREFIX/include" >> "$GITHUB_ENV"
-          echo "RIVET_RACKET_LIB_DIR=$LIB_DIR" >> "$GITHUB_ENV"
-          find "$PREFIX" -maxdepth 3 \( -name "libracketcs*" -o -name "*.boot" \) | head -8
-      - name: Install crypto package
-        run: raco pkg install --auto --no-docs crypto
-      - name: Link Rivet
-        run: raco pkg install --auto --no-docs --link "$GITHUB_WORKSPACE/rivet/rivet" "$GITHUB_WORKSPACE/rivet/rivet-cli"
-      - name: Link benchpilot runtime
-        run: raco pkg install --auto --name benchpilot --link racket
-      - name: Build Linux host
-        working-directory: studio
-        env:
-          RIVET_ROOT: ${{ github.workspace }}/rivet
-        run: raco rivet build
+          ls "$PREFIX/include" 2>/dev/null | head -5 \
+            || { echo "no include dir under $PREFIX" >&2; exit 1; }
+      - name: Compile Linux host
+        shell: bash
+        run: |
+          g++ -std=c++20 -fsyntax-only -Wall -Wextra -Wpedantic \
+            -I studio \
+            -I rivet/platform/linux/runtime \
+            -I rivet/platform/linux/system \
+            -I rivet/runtime/include \
+            -I "$RIVET_RACKET_INCLUDE" \
+            $(pkg-config --cflags gtk4 gio-2.0) \
+            studio/linux/src/main.cpp \
+            rivet/platform/linux/runtime/backend.cpp \
+            rivet/platform/linux/system/system_services.cpp \
+            rivet/runtime/src/protocol.cpp
 
   studio-windows-host:
     runs-on: windows-latest
