@@ -57,6 +57,8 @@ jobs:
       - name: Install package
         run: raco pkg install --auto --name benchpilot --link racket
       - name: Studio schema compatibility gate
-        run: raco rivet schema check studio/rivet-schema.json --json
+        working-directory: studio
+        run: raco rivet schema check rivet-schema.json --json
       - name: Studio backend wire tests
-        run: raco test studio/tests
+        working-directory: studio
+        run: raco test tests
