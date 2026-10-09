@@ -13,6 +13,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-metadata:
+    name: Release metadata (VERSION alignment)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify release version alignment
+        run: bash scripts/check-release-version.sh
+
   test:
     runs-on: ${{ matrix.os }}
     strategy:

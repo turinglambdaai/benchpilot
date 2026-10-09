@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generates distribution manifests for a BenchPilot release from its
-# SHA256SUMS.txt: a Homebrew formula (benchpilot.rb) and a scoop manifest
+# SHA256SUMS: a Homebrew formula (benchpilot.rb) and a scoop manifest
 # (benchpilot.scoop.json). Run in the release job after checksum generation.
 #
 # Usage: gen-dist-manifests.sh <version> <artifacts-dir>
@@ -12,7 +12,7 @@ cd "$dir"
 
 # Tolerate both `<hash>  file` (Linux sha256sum) and `<hash> *file` (Git Bash
 # binary mode), and strip any CR from CRLF-generated manifests.
-hash_of() { awk -v f="$1" '{ sub(/^\*/, "", $2); sub(/\r$/, "", $2) } $2 == f { print $1; exit }' SHA256SUMS.txt; }
+hash_of() { awk -v f="$1" '{ sub(/^\*/, "", $2); sub(/\r$/, "", $2) } $2 == f { print $1; exit }' SHA256SUMS; }
 
 mac_arm="$(hash_of "benchpilot-$ver-osx-arm64.tar.gz")"
 mac_x64="$(hash_of "benchpilot-$ver-osx-x64.tar.gz")"
@@ -22,7 +22,7 @@ win_x64="$(hash_of "benchpilot-$ver-win-x64.zip")"
 
 missing=0
 for v in "$mac_arm" "$mac_x64" "$lin_arm" "$lin_x64" "$win_x64"; do
-  [ -n "$v" ] || { echo "SHA256SUMS.txt has no entry for one of the release archives" >&2; missing=1; }
+  [ -n "$v" ] || { echo "SHA256SUMS has no entry for one of the release archives" >&2; missing=1; }
 done
 [ "$missing" -eq 0 ] || exit 1
 

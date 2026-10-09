@@ -9,7 +9,8 @@
 ;; (default turinglambdaai/benchpilot) are used. BENCHPILOT_UPDATE_FEED
 ;; overrides this with a generic feed URL answering
 ;; {"tag_name": "...", "assets": [{"name": "...", "url"/"browser_download_url": ...}]}.
-;; The platform archive must ship with a SHA256SUMS.txt asset.
+;; The platform archive must ship with a SHA256SUMS asset (releases older
+;; than the family rename ship SHA256SUMS.txt; both names are accepted).
 ;;
 ;; Platform tools: checksums hash through sha256sum / shasum / certutil and
 ;; archives extract through the OS tar (bsdtar on Windows reads zip), so no
@@ -158,7 +159,7 @@
                 #:when (and entry (string-ci=? entry archive-name)))
       (string-trim (first parts))))
   (unless expected
-    (raise (exn:fail (format "SHA256SUMS.txt has no entry for '~a'." archive-name)
+    (raise (exn:fail (format "SHA256SUMS has no entry for '~a'." archive-name)
                      (current-continuation-marks))))
   (define actual (sha256-hex archive-path))
   (unless actual
@@ -166,7 +167,7 @@
                      (current-continuation-marks))))
   (unless (string-ci=? actual expected)
     (raise (exn:fail
-            (format "Checksum mismatch: the downloaded archive does not match SHA256SUMS.txt (expected ~a, got ~a)."
+            (format "Checksum mismatch: the downloaded archive does not match the SHA256SUMS manifest (expected ~a, got ~a)."
                     (string-downcase expected)
                     (string-downcase actual))
             (current-continuation-marks))))
@@ -418,13 +419,18 @@
           (unless archive
             (raise (exn:fail (format "Release ~a has no asset '~a'." latest archive-name)
                              (current-continuation-marks))))
-          (define sums (findf (lambda (a) (string-ci=? (car a) "SHA256SUMS.txt")) assets))
+          ;; Family manifest name is SHA256SUMS; releases older than the
+          ;; rename ship SHA256SUMS.txt — accept either so a self-update can
+          ;; cross the transition.
+          (define sums (findf (lambda (a) (or (string-ci=? (car a) "SHA256SUMS")
+                                              (string-ci=? (car a) "SHA256SUMS.txt")))
+                              assets))
           (unless sums
-            (raise (exn:fail (format "Release ~a has no SHA256SUMS.txt asset." latest)
+            (raise (exn:fail (format "Release ~a has no SHA256SUMS asset." latest)
                              (current-continuation-marks))))
           (define archive-path (build-path work-dir archive-name))
           (download-to (cdr archive) archive-path)
-          (define sums-path (build-path work-dir "SHA256SUMS.txt"))
+          (define sums-path (build-path work-dir (car sums)))
           (download-to (cdr sums) sums-path)
           (verify-checksum archive-path sums-path archive-name)
 

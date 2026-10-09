@@ -1,7 +1,7 @@
 # BenchPilot installer for Windows.
 #
 # Downloads the latest release zip for win-x64 (or win-arm64), verifies it
-# against the release SHA256SUMS.txt, and installs the three executables into
+# against the release SHA256SUMS manifest, and installs the three executables into
 # ~\.benchpilot\bin. Idempotent: re-running upgrades in place.
 #
 # Usage:  irm <raw-install.ps1-url> | iex
@@ -32,12 +32,20 @@ New-Item -ItemType Directory -Path $Tmp -Force | Out-Null
 try {
     Write-Host "benchpilot-install: downloading $Archive"
     Invoke-WebRequest -Uri "$Base/$Archive" -OutFile (Join-Path $Tmp $Archive) -UseBasicParsing
-    Invoke-WebRequest -Uri "$Base/SHA256SUMS.txt" -OutFile (Join-Path $Tmp "SHA256SUMS.txt") -UseBasicParsing
+    # Family manifest name is SHA256SUMS; releases older than the rename
+    # ship SHA256SUMS.txt — accept both across the transition.
+    $Sums = "SHA256SUMS"
+    try {
+        Invoke-WebRequest -Uri "$Base/$Sums" -OutFile (Join-Path $Tmp $Sums) -UseBasicParsing
+    } catch {
+        $Sums = "SHA256SUMS.txt"
+        Invoke-WebRequest -Uri "$Base/$Sums" -OutFile (Join-Path $Tmp $Sums) -UseBasicParsing
+    }
 
-    $expected = (Get-Content (Join-Path $Tmp "SHA256SUMS.txt")) |
+    $expected = (Get-Content (Join-Path $Tmp $Sums)) |
         Where-Object { $_ -match [regex]::Escape($Archive) } |
         ForEach-Object { ($_ -split '\s+', 2)[0] } | Select-Object -First 1
-    if (-not $expected) { Fail "SHA256SUMS.txt has no entry for $Archive" }
+    if (-not $expected) { Fail "SHA256SUMS has no entry for $Archive" }
     $actual = (Get-FileHash (Join-Path $Tmp $Archive) -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actual -ne $expected.ToLowerInvariant()) { Fail "SHA256 mismatch for $Archive" }
 

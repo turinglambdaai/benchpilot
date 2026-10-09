@@ -20,18 +20,10 @@ jobs:
       - name: Verify tag matches the version constants
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          VERSION="$(sed -n 's/^(define benchpilot-version "\(.*\)")$/\1/p' racket/benchpilot/protocol/local-auth.rkt | head -n1)"
-          STUDIO_VERSION="$(sed -n 's/.*(version . "\([^"]*\)").*/\1/p' studio/rivet.rktd | head -n1)"
+          bash scripts/check-release-version.sh "${{ github.ref_name }}"
           TAG_VERSION="${GITHUB_REF_NAME#v}"
-          for pair in "benchpilot-version:$VERSION" "studio rivet.rktd:$STUDIO_VERSION"; do
-            name="${pair%%:*}"; value="${pair#*:}"
-            if [ -z "$value" ] || [ "$TAG_VERSION" != "$value" ]; then
-              echo "tag $GITHUB_REF_NAME does not match $name '$value'" >&2
-              exit 1
-            fi
-          done
           grep -q "^## $TAG_VERSION" CHANGELOG.md || { echo "CHANGELOG.md has no '## $TAG_VERSION' section" >&2; exit 1; }
-          echo "release preflight: version $TAG_VERSION verified across runtime, studio and changelog"
+          echo "release preflight: version $TAG_VERSION verified across runtime, studio, changelog and tag"
 
   test:
     strategy:
@@ -198,8 +190,11 @@ jobs:
       - name: Human installer (DMG, drag to Applications)
         working-directory: studio
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
           volname="BenchPilot Studio"
-          dmg="BenchPilot-Studio-${GITHUB_REF_NAME}-macos.dmg"
+          # Family artifact naming: <product>-<version>-<platform>-<arch>.
+          # Studio is packaged arm64-native (see the Racket setup above).
+          dmg="benchpilot-studio-${VERSION}-macos-arm64.dmg"
           staging="$(mktemp -d)/dmg-stage"
           mkdir -p "$staging"
           cp -R dist/benchpilot-studio.app "$staging/"
@@ -213,13 +208,13 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest@v4
         with:
-          subject-path: BenchPilot-Studio-*-macos.dmg
+          subject-path: benchpilot-studio-*-macos-arm64.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: benchpilot-studio-macos
-          path: BenchPilot-Studio-*-macos.dmg
+          path: benchpilot-studio-*-macos-arm64.dmg
           retention-days: 5
           if-no-files-found: error
 
@@ -245,12 +240,12 @@ jobs:
         shell: bash
         run: |
           cd artifacts
-          sha256sum * > SHA256SUMS.txt
+          sha256sum * > SHA256SUMS
 
       - name: Attest checksum manifest
         uses: actions/attest@v4
         with:
-          subject-path: artifacts/SHA256SUMS.txt
+          subject-path: artifacts/SHA256SUMS
 
       - name: Generate Homebrew formula and scoop manifest
         run: bash scripts/gen-dist-manifests.sh "${GITHUB_REF_NAME#v}" artifacts

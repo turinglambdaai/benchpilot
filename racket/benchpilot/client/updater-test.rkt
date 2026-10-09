@@ -36,7 +36,7 @@
   (test-case "checksum verification accepts a matching entry"
     (define dir (make-temporary-file "benchpilot-update-test-~a" 'directory))
     (define archive (build-path dir "archive.bin"))
-    (define sums (build-path dir "SHA256SUMS.txt"))
+    (define sums (build-path dir "SHA256SUMS"))
     (display-to-file #"hello" archive #:exists 'replace)
     (display-to-file
      (string-append
@@ -50,7 +50,7 @@
   (test-case "checksum verification rejects a tampered archive"
     (define dir (make-temporary-file "benchpilot-update-test-~a" 'directory))
     (define archive (build-path dir "archive.bin"))
-    (define sums (build-path dir "SHA256SUMS.txt"))
+    (define sums (build-path dir "SHA256SUMS"))
     (display-to-file #"hello" archive #:exists 'replace)
     (display-to-file
      (string-append "0000000000000000000000000000000000000000000000000000000000000000"
@@ -67,7 +67,7 @@
   (test-case "checksum verification rejects a missing entry"
     (define dir (make-temporary-file "benchpilot-update-test-~a" 'directory))
     (define archive (build-path dir "archive.bin"))
-    (define sums (build-path dir "SHA256SUMS.txt"))
+    (define sums (build-path dir "SHA256SUMS"))
     (display-to-file #"hello" archive #:exists 'replace)
     (display-to-file
      (string-append hello-sha256 "  some-other-archive.zip\n")
@@ -77,6 +77,6 @@
         (verify-checksum archive sums "benchpilot-0.5.1-win-x64.zip")
         #f))
     (check-true
-     (and message (string-contains? message "SHA256SUMS.txt has no entry for"))
+     (and message (string-contains? message "SHA256SUMS has no entry for"))
      (format "message: ~a" message))
     (delete-directory/files dir)))

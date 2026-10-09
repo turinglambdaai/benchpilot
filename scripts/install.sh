@@ -2,7 +2,7 @@
 # BenchPilot installer.
 #
 # Downloads the latest release archive for this platform, verifies it against
-# the release SHA256SUMS.txt, and installs the three executables into
+# the release SHA256SUMS manifest, and installs the three executables into
 # ~/.benchpilot/bin. Idempotent: re-running upgrades in place.
 #
 # Usage:  curl -fsSL <raw-install.sh-url> | bash
@@ -50,11 +50,14 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 log "downloading $ARCHIVE"
 fetch "$BASE/$ARCHIVE" "$TMP/$ARCHIVE"
-fetch "$BASE/SHA256SUMS.txt" "$TMP/SHA256SUMS.txt"
+# Family manifest name is SHA256SUMS; releases older than the rename ship
+# SHA256SUMS.txt — accept both so the installer works across the transition.
+SUMS=SHA256SUMS
+fetch "$BASE/$SUMS" "$TMP/$SUMS" || { SUMS=SHA256SUMS.txt; fetch "$BASE/$SUMS" "$TMP/$SUMS"; }
 
 (
   cd "$TMP"
-  sha256sum --ignore-missing -c SHA256SUMS.txt
+  sha256sum --ignore-missing -c "$SUMS"
 )
 
 # Unix archives are a full distribution tree (bin/ + lib/); it installs to
