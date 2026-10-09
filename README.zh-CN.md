@@ -135,6 +135,16 @@ curl -fsSL https://raw.githubusercontent.com/turinglambdaai/benchpilot/main/scri
 irm https://raw.githubusercontent.com/turinglambdaai/benchpilot/main/scripts/install.ps1 | iex
 ```
 
+每个发布包含的内容（全部由发布自带的 `SHA256SUMS` 校验清单覆盖）：
+
+| 平台 | CLI（便携） | CLI（安装器） | Studio（桌面 app） |
+| --- | --- | --- | --- |
+| macOS Apple Silicon | `benchpilot-<version>-osx-arm64.tar.gz` | — | `benchpilot-studio-<version>-macos-arm64.dmg` |
+| macOS Intel | `benchpilot-<version>-osx-x64.tar.gz` | — | — |
+| Windows x64 | `benchpilot-<version>-win-x64.zip` | — | 计划中 |
+| Linux x64 | `benchpilot-<version>-linux-x64.tar.gz` | `benchpilot-<version>-linux-x64.deb` | 计划中 |
+| Linux arm64 | `benchpilot-<version>-linux-arm64.tar.gz` | — | 计划中 |
+
 包管理器路线：每个发布还带生成的 Homebrew formula（`benchpilot.rb`）和 scoop manifest（`benchpilot.scoop.json`）——复制进你的 tap/bucket，或者从
 [最新发布](https://github.com/turinglambdaai/benchpilot/releases/latest)
 手动安装（`benchpilot-<version>-<platform>.zip/.tar.gz`）并把三个可执行文件放进 `PATH`：
@@ -146,7 +156,7 @@ irm https://raw.githubusercontent.com/turinglambdaai/benchpilot/main/scripts/ins
 | `benchpilot-mcp` | 面向 agent 客户端的 stdio MCP 适配器 |
 
 桌面 app：从[最新发布](https://github.com/turinglambdaai/benchpilot/releases/latest)下载
-`BenchPilot-Studio-<version>-macos.dmg`（macOS 14+，Apple Silicon），把 **BenchPilot Studio**
+`benchpilot-studio-<version>-macos-arm64.dmg`（macOS 14+，Apple Silicon），把 **BenchPilot Studio**
 拖进 Applications 启动。Studio 是同一个常驻运行时的客户端——先让 `benchpilotd`
 跑起来（任意 CLI/MCP 命令会自动拉起），app 即自动连接；运行时不在时显示可达性
 诊断态而不是空白。Windows 与 Linux 宿主随后。
@@ -169,6 +179,11 @@ benchpilot update           # 下载、校验 SHA256、优雅停掉守护进程�
 ```
 
 硬件操作进行期间更新器拒绝运行，并在被替换的可执行文件旁边留下 `.old` 备份。如果 agent 宿主了 `benchpilot-mcp`，更新后请重启那个 MCP server。
+
+范围如实说明：自更新器只覆盖三个可执行文件——feed 是本仓库的 GitHub
+releases，完整性校验用发布自带的 `SHA256SUMS` 清单。Studio（桌面 app）暂无
+应用内更新器：从[最新发布](https://github.com/turinglambdaai/benchpilot/releases/latest)下载新
+DMG 拖进 Applications 即可。
 
 ### 1. 直接跑命令
 

@@ -136,6 +136,17 @@ curl -fsSL https://raw.githubusercontent.com/turinglambdaai/benchpilot/main/scri
 irm https://raw.githubusercontent.com/turinglambdaai/benchpilot/main/scripts/install.ps1 | iex
 ```
 
+What each release ships (all of it covered by the release's `SHA256SUMS`
+checksum manifest):
+
+| platform | CLI (portable) | CLI (installer) | Studio (desktop app) |
+| --- | --- | --- | --- |
+| macOS Apple silicon | `benchpilot-<version>-osx-arm64.tar.gz` | — | `benchpilot-studio-<version>-macos-arm64.dmg` |
+| macOS Intel | `benchpilot-<version>-osx-x64.tar.gz` | — | — |
+| Windows x64 | `benchpilot-<version>-win-x64.zip` | — | planned |
+| Linux x64 | `benchpilot-<version>-linux-x64.tar.gz` | `benchpilot-<version>-linux-x64.deb` | planned |
+| Linux arm64 | `benchpilot-<version>-linux-arm64.tar.gz` | — | planned |
+
 Package-manager routes: each release also carries a generated Homebrew
 formula (`benchpilot.rb`) and scoop manifest (`benchpilot.scoop.json`) — copy
 them into your tap/bucket, or install manually from the
@@ -149,7 +160,7 @@ on your `PATH`:
 | `benchpilot` | CLI for humans, CI and agents |
 | `benchpilot-mcp` | stdio MCP adapter for agent clients |
 
-Desktop app: download `BenchPilot-Studio-<version>-macos.dmg` from the
+Desktop app: download `benchpilot-studio-<version>-macos-arm64.dmg` from the
 [latest release](https://github.com/turinglambdaai/benchpilot/releases/latest)
 (macOS 14+, Apple Silicon), drag **BenchPilot Studio** to Applications and
 launch. Studio is a client over the same resident runtime — start
@@ -177,6 +188,13 @@ benchpilot update           # download, verify SHA256, stop the daemon
 The updater refuses to run while hardware operations are active, and leaves
 `.old` backups next to the replaced executables. If an agent hosts
 `benchpilot-mcp`, restart that MCP server after updating.
+
+Scope, stated plainly: the self-updater covers the three executables only —
+its feed is this repo's GitHub releases, and integrity comes from the
+release's `SHA256SUMS` manifest. Studio (the desktop app) has no in-app
+updater: download the new DMG from the
+[latest release](https://github.com/turinglambdaai/benchpilot/releases/latest)
+and drag it to Applications.
 
 ### 1. Just run a command
 
