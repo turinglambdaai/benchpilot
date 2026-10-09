@@ -40,3 +40,23 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: bash scripts/smoke-shutdown.sh
+
+  studio-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Racket
+        uses: Bogdanp/setup-racket@v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: '9.3'
+      - name: Install rivet (upstream main)
+        run: raco pkg install --auto --no-docs --skip-installed https://github.com/turinglambdaai/rivet.git
+      - name: Install package
+        run: raco pkg install --auto --name benchpilot --link racket
+      - name: Studio schema compatibility gate
+        run: raco rivet schema check studio/rivet-schema.json --json
+      - name: Studio backend wire tests
+        run: raco test studio/tests

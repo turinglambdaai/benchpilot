@@ -29,8 +29,14 @@ final class AppModel: ObservableObject {
     @Published var statusText = "Starting embedded Racket CS…"
     @Published var runtime: RuntimeStatus?
     @Published var operations: [OperationSummary] = []
+    @Published var observations: [ObservationSummary] = []
     @Published var history: [OperationHistoryItem] = []
     @Published var busy = false
+    @Published var serialLog: [String] = []
+    @Published var udsPositive: Bool?
+    @Published var udsResponseHex: String?
+    @Published var udsNrc: String?
+    @Published var doipVehicles: [DoipVehicle] = []
 
     private var backend: EmbeddedRacketBackend?
 
@@ -74,14 +80,17 @@ final class AppModel: ObservableObject {
         do {
             let status = try await api.status()
             let active = try await api.list_operations()
+            let activeObs = try await api.list_observations()
             let past = try await api.operation_history(limit: 25)
             runtime = status
             operations = active
+            observations = activeObs
             history = past
             statusText = "Connected"
         } catch {
             runtime = nil
             operations = []
+            observations = []
             history = []
             statusText = "\(error)"
         }
@@ -101,6 +110,10 @@ final class AppModel: ObservableObject {
             busy = false
             await refresh()
         }
+    }
+
+    private func note(_ line: String) {
+        serialLog.append(line)
     }
 
     func powerOn(_ target: TargetSummary, millivolts: Int64) {
@@ -136,6 +149,73 @@ final class AppModel: ObservableObject {
     func cancel(_ operation: OperationSummary) {
         perform("Cancelling \(operation.id)…") { api in
             _ = try await api.cancel_operation(operation_id: operation.id)
+        }
+    }
+
+    func serialOpen(_ target: TargetSummary, port: String?, baud: Int64?) {
+        perform("Opening serial on \(target.name)…") { api in
+            let result = try await api.serial_open(target: target.id, port: port, baud: baud)
+            self.note(result.ok
+                      ? "open → \(result.port) @ \(result.baud) baud"
+                      : "open failed: \(result.error ?? "unknown error")")
+        }
+    }
+
+    func serialSend(_ target: TargetSummary, data: String) {
+        perform("Sending serial data…") { api in
+            let result = try await api.serial_send(target: target.id, data: data)
+            self.note(result.ok
+                      ? "send → queued (observation \(result.observation_id ?? "-"))"
+                      : "send failed: \(result.error ?? "unknown error")")
+        }
+    }
+
+    func serialWait(_ target: TargetSummary, pattern: String, timeoutMs: Int64) {
+        perform("Waiting for \"\(pattern)\"…") { api in
+            let result = try await api.serial_wait(target: target.id, pattern: pattern, timeout_ms: timeoutMs)
+            if result.matched {
+                self.note("wait matched after \(result.elapsed_ms) ms: \(result.matched_line ?? "")")
+            } else {
+                self.note("wait timed out after \(result.elapsed_ms) ms: \(result.error ?? "no match")")
+            }
+        }
+    }
+
+    func serialWindow(_ target: TargetSummary, lines: Int64, filter: String?) {
+        perform("Capturing serial window…") { api in
+            let result = try await api.serial_window(target: target.id, lines: lines, line_filter: filter)
+            if result.ok {
+                self.note("window (\(result.lines.count) lines):")
+                for line in result.lines { self.note("  \(line)") }
+            } else {
+                self.note("window failed: \(result.error ?? "unknown error")")
+            }
+        }
+    }
+
+    func udsRequest(_ target: TargetSummary, requestHex: String) {
+        perform("UDS request \(requestHex)…") { api in
+            let result = try await api.uds_request(target: target.id, request_hex: requestHex,
+                                                   p2_timeout_ms: nil, p2_star_timeout_ms: nil)
+            self.udsPositive = result.positive
+            self.udsResponseHex = result.response_hex
+            self.udsNrc = result.nrc
+            if !result.ok {
+                self.statusText = "UDS error: \(result.error ?? "unknown error")"
+            }
+        }
+    }
+
+    func doipDiscover() {
+        perform("Discovering DoIP vehicles…") { api in
+            let result = try await api.doip_discover(window_ms: 800)
+            self.doipVehicles = result.vehicles
+        }
+    }
+
+    func cancelObservation(_ observation: ObservationSummary) {
+        perform("Cancelling observation \(observation.id)…") { api in
+            _ = try await api.cancel_observation(observation_id: observation.id)
         }
     }
 }

@@ -4,7 +4,14 @@ struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @State private var firmwarePath = ""
     @State private var firmwareTargetId: String?
+    @State private var diagTargetId: String?
     @State private var voltageMillivolts = 12000.0
+    @State private var serialPort = ""
+    @State private var serialBaud = ""
+    @State private var serialSendText = ""
+    @State private var serialPattern = ""
+    @State private var serialTimeout = "10000"
+    @State private var udsRequestHex = ""
     @State private var flashTargetId: String?
     @State private var pollTask: Task<Void, Never>?
 
@@ -16,7 +23,10 @@ struct ContentView: View {
                 List {
                     targetsSection(status)
                     flashSection(status)
+                    serialSection(status)
+                    diagnosticsSection(status)
                     operationsSection
+                    observationsSection
                     historySection
                 }
             } else {
@@ -159,8 +169,142 @@ struct ContentView: View {
         }
     }
 
-    private var operationsSection: some View {
-        Section("Active operations") {
+    private func serialSection(_ status: RuntimeStatus) -> some View {
+        Section("Serial") {
+            Picker("Target", selection: Binding(
+                get: { diagTargetId ?? status.targets.first?.id },
+                set: { diagTargetId = $0 }
+            )) {
+                ForEach(status.targets, id: \.id) { target in
+                    Text(target.name).tag(Optional(target.id))
+                }
+            }
+            HStack(spacing: 8) {
+                TextField("port (auto)", text: $serialPort)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 120)
+                TextField("baud (auto)", text: $serialBaud)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 80)
+                Button("Open") {
+                    withDiagTarget { model.serialOpen($0,
+                                                      port: serialPort.isEmpty ? nil : serialPort,
+                                                      baud: Int64(serialBaud)) }
+                }
+                .disabled(disabled || status.targets.isEmpty)
+            }
+            HStack(spacing: 8) {
+                TextField("data to send", text: $serialSendText)
+                    .textFieldStyle(.roundedBorder)
+                Button("Send") {
+                    withDiagTarget { model.serialSend($0, data: serialSendText) }
+                }
+                .disabled(disabled || serialSendText.isEmpty || status.targets.isEmpty)
+            }
+            HStack(spacing: 8) {
+                TextField("wait for pattern", text: $serialPattern)
+                    .textFieldStyle(.roundedBorder)
+                TextField("timeout ms", text: $serialTimeout)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 90)
+                Button("Wait") {
+                    withDiagTarget { model.serialWait($0,
+                                                      pattern: serialPattern,
+                                                      timeoutMs: Int64(serialTimeout) ?? 10000) }
+                }
+                .disabled(disabled || serialPattern.isEmpty || status.targets.isEmpty)
+                Button("Capture window") {
+                    withDiagTarget { model.serialWindow($0, lines: 50, filter: nil) }
+                }
+                .disabled(disabled || status.targets.isEmpty)
+            }
+            if !model.serialLog.isEmpty {
+                Text(model.serialLog.joined(separator: "\n"))
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: 120, alignment: .topLeading)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private func diagnosticsSection(_ status: RuntimeStatus) -> some View {
+        Section("Diagnostics") {
+            HStack(spacing: 8) {
+                TextField("UDS request hex, e.g. 22 F1 90", text: $udsRequestHex)
+                    .textFieldStyle(.roundedBorder)
+                Button("Send") {
+                    withDiagTarget { model.udsRequest($0, requestHex: udsRequestHex) }
+                }
+                .disabled(disabled || udsRequestHex.isEmpty || status.targets.isEmpty)
+                Spacer()
+                Button("DoIP discover") { model.doipDiscover() }
+                    .disabled(disabled)
+            }
+            if let positive = model.udsPositive {
+                HStack(spacing: 8) {
+                    Text(positive ? "positive" : "negative")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill((positive ? Color.green : Color.red).opacity(0.18)))
+                        .foregroundStyle(positive ? Color.green : Color.red)
+                    if let nrc = model.udsNrc {
+                        Text("NRC \(nrc)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.red)
+                    }
+                    if let hex = model.udsResponseHex {
+                        Text(hex)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+            ForEach(model.doipVehicles, id: \.vin) { vehicle in
+                Text("\(vehicle.vin) · \(vehicle.logical_address)\(vehicle.ip_address.map { " · \($0)" } ?? "")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func withDiagTarget(_ body: (TargetSummary) -> Void) {
+        if let id = diagTargetId ?? model.runtime?.targets.first?.id,
+           let target = model.runtime?.targets.first(where: { $0.id == id }) {
+            body(target)
+        }
+    }
+
+    private var observationsSection: some View {
+        Section("Active observations") {
+            if model.observations.isEmpty {
+                Text("No active observations.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(model.observations, id: \.id) { observation in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(observation.kind) · \(observation.target_id)")
+                            .font(.body.weight(.medium))
+                        Text(observation.id)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if observation.cancellation_requested {
+                        Text("cancelling")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    Button("Cancel") { model.cancelObservation(observation) }
+                        .disabled(disabled || observation.cancellation_requested)
+                }
+            }
+        }
+    }
+
+    private var operationsSection: some View {        Section("Active operations") {
             if model.operations.isEmpty {
                 Text("No active operations.")
                     .foregroundStyle(.secondary)

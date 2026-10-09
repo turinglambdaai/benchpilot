@@ -113,6 +113,36 @@
      (values 200 (hasheq 'ok #t 'bytes 1024 'durationMs 3000 'error 'null))]
     [(and (string=? method "POST") (string-suffix? target "/operations/cancel"))
      (values 200 (hasheq 'ok #t 'operationId "op-1" 'cancelRequested #t 'error 'null))]
+    [(and (string=? method "GET") (string-suffix? target "/observations"))
+     (values 200
+             (hasheq 'ok #t
+                     'observations (list (hasheq 'id "obs-1" 'targetId "ecu-main" 'kind "serial.wait"
+                                                 'resourceIds (list "serial-1")
+                                                 'startedAtUtc "2026-10-08T09:03:00.0000000+00:00"
+                                                 'deadlineAtUtc 'null
+                                                 'cancellationRequested #f
+                                                 'deadlineExceeded #f))))]
+    [(and (string=? method "POST") (string-suffix? target "/observations/cancel"))
+     (values 200 (hasheq 'ok #t 'observationId "obs-1" 'cancelRequested #t 'error 'null))]
+    [(and (string=? method "POST") (string-suffix? target "/serial/open"))
+     (values 200 (hasheq 'ok #t 'port "/dev/ttyUSB0" 'baud 115200 'error 'null 'observationId "obs-2"))]
+    [(and (string=? method "POST") (string-suffix? target "/serial/wait"))
+     (values 200 (hasheq 'ok #t 'matched #t 'matchedLine "Ready" 'elapsedMs 1200
+                         'error 'null 'observationId "obs-3"))]
+    [(and (string=? method "POST") (string-suffix? target "/serial/window"))
+     (values 200 (hasheq 'ok #t 'lines (list "line-1" "line-2") 'error 'null 'observationId "obs-4"))]
+    [(and (string=? method "POST") (string-suffix? target "/serial/send"))
+     (values 200 (hasheq 'ok #t 'error 'null 'observationId "obs-5"))]
+    [(and (string=? method "POST") (string-suffix? target "/uds/request"))
+     (if (regexp-match? #rx"target=boom" query)
+         (values 409 (hasheq 'code "busy" 'error "resource busy"))
+         (values 200 (hasheq 'ok #t 'positive #t 'requestHex "22F190"
+                             'responseHex "62F1905431 3930" 'nrc 'null 'error 'null)))]
+    [(and (string=? method "POST") (string-suffix? target "/doip/discover"))
+     (values 200 (hasheq 'ok #t
+                         'vehicles (list (hasheq 'vin "VIN123" 'logicalAddress "0x0E80" 'ipAddress "169.254.1.10")
+                                         (hasheq 'vin "VIN456" 'logicalAddress "0x0E81" 'ipAddress 'null))
+                         'error 'null))]
     [(and (string=? method "POST")
           (or (string-suffix? target "/power/off")
               (string-suffix? target "/power/emergency-off")
@@ -261,6 +291,58 @@
 (define-values (boom-kind boom-wire) (call "power-on" "boom" 12000 2000))
 (check-equal? boom-kind 'error)
 (check-true (string-contains? (format "~a" boom-wire) "resource busy"))
+
+;; --- 6. serial: open/wait/window/send -----------------------------------------
+
+(define-values (sopen-kind sopen-wire) (call "serial-open" "ecu-main" (void) (void)))
+(check-equal? sopen-kind 'response)
+(check-true (list-ref sopen-wire 0))                         ; ok
+(check-equal? (list-ref sopen-wire 1) "/dev/ttyUSB0")        ; port
+(check-equal? (list-ref sopen-wire 2) 115200)                ; baud
+
+(define-values (swait-kind swait-wire) (call "serial-wait" "ecu-main" "Ready" 5000))
+(check-equal? swait-kind 'response)
+(check-true (list-ref swait-wire 1))                         ; matched
+(check-equal? (list-ref swait-wire 2) "Ready")               ; matched-line
+(check-equal? (list-ref swait-wire 3) 1200)                  ; elapsed-ms
+
+(define-values (swin-kind swin-wire) (call "serial-window" "ecu-main" 50 (void)))
+(check-equal? swin-kind 'response)
+(check-equal? (list-ref swin-wire 1) (list "line-1" "line-2"))
+
+(define-values (ssend-kind ssend-wire) (call "serial-send" "ecu-main" "hello"))
+(check-equal? ssend-kind 'response)
+(check-true (list-ref ssend-wire 0))
+
+;; --- 7. UDS + DoIP + observations ----------------------------------------------
+
+(define-values (uds-kind uds-wire) (call "uds-request" "ecu-main" "22 F1 90" (void) (void)))
+(check-equal? uds-kind 'response)
+(check-true (list-ref uds-wire 0))                           ; ok
+(check-true (list-ref uds-wire 1))                           ; positive
+(check-equal? (list-ref uds-wire 2) "22F190")                ; request-hex
+(check-true (string-contains? (list-ref uds-wire 3) "62F190"))
+
+(define-values (udsboom-kind udsboom-wire) (call "uds-request" "boom" "22 F1 90" (void) (void)))
+(check-equal? udsboom-kind 'error)
+
+(define-values (doip-kind doip-wire) (call "doip-discover" 800))
+(check-equal? doip-kind 'response)
+(check-equal? (length (list-ref doip-wire 1)) 2)             ; vehicles
+(define vehicle-wire (list-ref (list-ref doip-wire 1) 0))
+(check-equal? (list-ref vehicle-wire 0) "VIN123")
+(check-equal? (list-ref vehicle-wire 1) "0x0E80")
+
+(define-values (obs-kind obs-wire) (call "list-observations"))
+(check-equal? obs-kind 'response)
+(check-equal? (length obs-wire) 1)
+(check-equal? (list-ref (list-ref obs-wire 0) 2) "serial.wait")
+
+(define-values (obscancel-kind obscancel-wire) (call "cancel-observation" "obs-1"))
+(check-equal? obscancel-kind 'response)
+(check-true (list-ref obscancel-wire 0))
+(check-equal? (list-ref obscancel-wire 1) "obs-1")
+(check-true (list-ref obscancel-wire 2))
 
 ;; --- shutdown ----------------------------------------------------------------
 

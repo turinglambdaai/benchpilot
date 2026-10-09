@@ -83,6 +83,66 @@
    [duration-ms : Int64]
    [error : (Optional String)]))
 
+(define-record SerialOpenResult
+  ([ok : Bool]
+   [port : String]
+   [baud : Int64]
+   [error : (Optional String)]
+   [observation-id : (Optional String)]))
+
+(define-record SerialWaitResult
+  ([ok : Bool]
+   [matched : Bool]
+   [matched-line : (Optional String)]
+   [elapsed-ms : Int64]
+   [error : (Optional String)]
+   [observation-id : (Optional String)]))
+
+(define-record SerialWindowResult
+  ([ok : Bool]
+   [lines : (List String)]
+   [error : (Optional String)]
+   [observation-id : (Optional String)]))
+
+(define-record SerialSendResult
+  ([ok : Bool]
+   [error : (Optional String)]
+   [observation-id : (Optional String)]))
+
+(define-record UdsRequestResult
+  ([ok : Bool]
+   [positive : Bool]
+   [request-hex : String]
+   [response-hex : (Optional String)]
+   [nrc : (Optional String)]
+   [error : (Optional String)]))
+
+(define-record DoipVehicle
+  ([vin : String]
+   [logical-address : String]
+   [ip-address : (Optional String)]))
+
+(define-record DoipDiscovery
+  ([ok : Bool]
+   [vehicles : (List DoipVehicle)]
+   [error : (Optional String)]))
+
+(define-record ObservationSummary
+  ([id : String]
+   [target-id : String]
+   [kind : String]
+   [resource-ids : (List String)]
+   [started-at-utc : String]
+   [deadline-at-utc : (Optional String)]
+   [cancellation-requested : Bool]
+   [deadline-exceeded : Bool]))
+
+(define-record ObservationCancelResult
+  ([ok : Bool]
+   [observation-id : String]
+   [cancel-requested : Bool]
+   [error : (Optional String)]))
+
 ;; --- jsexpr adapters -------------------------------------------------------
 
 (define (jstr j key)
@@ -103,6 +163,11 @@
 ;; Optional fields use (void) as the absent representation on the RVT1 wire.
 (define (jopt j key)
   (or (jref j key) (void)))
+
+;; Optional RPC arguments arrive as (void) when absent; the daemon JSON body
+;; encodes absence as null.
+(define (opt->null v)
+  (if (void? v) 'null v))
 
 ;; Scaled integer from a daemon real (or missing) field: volts -> millivolts,
 ;; mA -> microamps use scale 1000.0.
@@ -133,6 +198,16 @@
                     (jopt j 'deadlineAtUtc)
                     (jbool j 'cancellationRequested)
                     (jbool j 'deadlineExceeded)))
+
+(define (j->observation j)
+  (ObservationSummary (jstr j 'id)
+                      (jstr j 'targetId)
+                      (jstr j 'kind)
+                      (jlist j 'resourceIds)
+                      (jstr j 'startedAtUtc)
+                      (jopt j 'deadlineAtUtc)
+                      (jbool j 'cancellationRequested)
+                      (jbool j 'deadlineExceeded)))
 
 (define (j->history j)
   (OperationHistoryItem (jstr j 'id)
@@ -213,6 +288,92 @@
   (action-result (api-post "/flash/reset"
                            (hasheq 'target target)
                            (hasheq 'confirmTarget (if (void? confirm-target) 'null confirm-target)))))
+
+;; --- Serial observations -----------------------------------------------------
+
+(define-rpc (serial-open [target : String]
+                         [port : (Optional String)]
+                         [baud : (Optional Int64)]
+                         : SerialOpenResult)
+  (define j (api-post "/serial/open"
+                      (hasheq 'target target)
+                      (hasheq 'port (opt->null port) 'baud (opt->null baud))))
+  (SerialOpenResult (jbool j 'ok)
+                    (jstr j 'port)
+                    (jint j 'baud)
+                    (jopt j 'error)
+                    (jopt j 'observationId)))
+
+(define-rpc (serial-wait [target : String]
+                         [pattern : String]
+                         [timeout-ms : Int64]
+                         : SerialWaitResult)
+  (define j (api-post "/serial/wait"
+                      (hasheq 'target target)
+                      (hasheq 'pattern pattern 'timeoutMs timeout-ms)))
+  (SerialWaitResult (jbool j 'ok)
+                    (jbool j 'matched)
+                    (jopt j 'matchedLine)
+                    (jint j 'elapsedMs)
+                    (jopt j 'error)
+                    (jopt j 'observationId)))
+
+(define-rpc (serial-window [target : String]
+                           [lines : Int64]
+                           [line-filter : (Optional String)]
+                           : SerialWindowResult)
+  (define j (api-post "/serial/window"
+                      (hasheq 'target target)
+                      (hasheq 'lines lines 'filter (opt->null line-filter))))
+  (SerialWindowResult (jbool j 'ok)
+                      (jlist j 'lines)
+                      (jopt j 'error)
+                      (jopt j 'observationId)))
+
+(define-rpc (serial-send [target : String] [data : String] : SerialSendResult)
+  (define j (api-post "/serial/send"
+                      (hasheq 'target target)
+                      (hasheq 'data data)))
+  (SerialSendResult (jbool j 'ok) (jopt j 'error) (jopt j 'observationId)))
+
+;; --- Diagnostics ---------------------------------------------------------------
+
+(define-rpc (uds-request [target : String]
+                         [request-hex : String]
+                         [p2-timeout-ms : (Optional Int64)]
+                         [p2-star-timeout-ms : (Optional Int64)]
+                         : UdsRequestResult)
+  (define j (api-post "/uds/request"
+                      (hasheq 'target target)
+                      (hasheq 'requestHex request-hex
+                              'p2TimeoutMs (opt->null p2-timeout-ms)
+                              'p2StarTimeoutMs (opt->null p2-star-timeout-ms))))
+  (UdsRequestResult (jbool j 'ok)
+                    (jbool j 'positive)
+                    (jstr j 'requestHex)
+                    (jopt j 'responseHex)
+                    (jopt j 'nrc)
+                    (jopt j 'error)))
+
+(define-rpc (doip-discover [window-ms : Int64] : DoipDiscovery)
+  (define j (api-post "/doip/discover" (hasheq) (hasheq 'windowMs window-ms)))
+  (DoipDiscovery (jbool j 'ok)
+                 (map (lambda (v)
+                        (DoipVehicle (jstr v 'vin)
+                                     (jstr v 'logicalAddress)
+                                     (jopt v 'ipAddress)))
+                      (jlist j 'vehicles))
+                 (jopt j 'error)))
+
+(define-rpc (list-observations : (List ObservationSummary))
+  (map j->observation (jlist (api-get "/observations") 'observations)))
+
+(define-rpc (cancel-observation [observation-id : String] : ObservationCancelResult)
+  (define j (api-post "/observations/cancel" (hasheq 'observationId observation-id)))
+  (ObservationCancelResult (jbool j 'ok)
+                           (jstr j 'observationId)
+                           (jbool j 'cancelRequested)
+                           (jopt j 'error)))
 
 ;; --- Entry -----------------------------------------------------------------
 
