@@ -96,8 +96,8 @@ jobs:
         run: |
           curl -fsSL -o /tmp/racket-installer.sh \
             https://mirror.racket-lang.org/installers/9.3/racket-9.3-x86_64-linux-cs.sh
-          sh /tmp/racket-installer.sh --unix-style --dest /usr/local
-          echo /usr/local/bin >> "$GITHUB_PATH"
+          sh /tmp/racket-installer.sh --unix-style --dest "$HOME/racket"
+          echo "$HOME/racket/bin" >> "$GITHUB_PATH"
       - name: Locate Racket runtime files
         shell: bash
         run: |
