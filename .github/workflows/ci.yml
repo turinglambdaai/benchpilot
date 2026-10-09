@@ -90,13 +90,14 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             libgtk-4-dev libsecret-1-dev libncurses-dev zlib1g-dev liblz4-dev
-      - name: Setup Racket
-        uses: Bogdanp/setup-racket@v1.15
-        with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: '9.3'
+      - name: Install Racket (official CS distribution)
+        # setup-racket's archive ships no libracketcs*.a, which the Linux
+        # embedding links statically; the official distribution does.
+        run: |
+          curl -fsSL -o /tmp/racket-installer.sh \
+            https://mirror.racket-lang.org/installers/9.3/racket-9.3-x86_64-linux-cs.sh
+          sh /tmp/racket-installer.sh --unix-style --dest /usr/local
+          echo /usr/local/bin >> "$GITHUB_PATH"
       - name: Locate Racket runtime files
         shell: bash
         run: |
