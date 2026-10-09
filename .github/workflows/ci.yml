@@ -90,6 +90,13 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             libgtk-4-dev libsecret-1-dev libncurses-dev zlib1g-dev liblz4-dev
+      - name: Setup Racket
+        uses: Bogdanp/setup-racket@v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: '9.3'
       - name: Locate Racket runtime files
         shell: bash
         run: |
@@ -99,13 +106,6 @@ jobs:
           echo "RIVET_RACKET_INCLUDE=$PREFIX/include" >> "$GITHUB_ENV"
           echo "RIVET_RACKET_LIB_DIR=$LIB_DIR" >> "$GITHUB_ENV"
           find "$PREFIX" -maxdepth 3 \( -name "libracketcs*" -o -name "*.boot" \) | head -8
-      - name: Setup Racket
-        uses: Bogdanp/setup-racket@v1.15
-        with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: '9.3'
       - name: Install crypto package
         run: raco pkg install --auto --no-docs crypto
       - name: Link Rivet

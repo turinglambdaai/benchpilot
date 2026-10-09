@@ -191,7 +191,7 @@ void MainWindow::PowerOn_Click(
   SetButtonsEnabled(false);
   StatusBar().Severity(Microsoft::UI::Xaml::Controls::InfoBarSeverity::Informational);
   StatusBar().Message(L"Powering on…");
-  auto const target = wide(target_id_);
+  auto const target = target_id_;
   RunJob([weak, backend, target]() mutable {
     rivet_app::API api(*backend);
     rivet_app::PowerOnResult const result =
@@ -226,7 +226,7 @@ void MainWindow::PowerOff_Click(
   SetButtonsEnabled(false);
   StatusBar().Severity(Microsoft::UI::Xaml::Controls::InfoBarSeverity::Informational);
   StatusBar().Message(L"Powering off…");
-  auto const target = wide(target_id_);
+  auto const target = target_id_;
   RunJob([weak, backend, target]() mutable {
     rivet_app::API api(*backend);
     rivet_app::ActionResult const result =
@@ -260,7 +260,7 @@ void MainWindow::DtcRead_Click(
   SetButtonsEnabled(false);
   StatusBar().Severity(Microsoft::UI::Xaml::Controls::InfoBarSeverity::Informational);
   StatusBar().Message(L"Reading DTCs…");
-  auto const target = wide(target_id_);
+  auto const target = target_id_;
   RunJob([weak, backend, target]() mutable {
     rivet_app::API api(*backend);
     rivet_app::DtcReadResult const result =
