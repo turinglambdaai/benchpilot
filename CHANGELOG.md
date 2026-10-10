@@ -2,6 +2,30 @@
 
 All notable changes to BenchPilot are documented here.
 
+## 0.1.0 - 2026-10-10
+
+Version epoch reset. The family version strategy changes: the technical
+rewrite is complete and the project enters the 0.x feature-validation
+stage, so version numbering restarts at 0.1.0. No code changes ride with
+this release — the tree is the 1.2.0 codebase re-versioned.
+
+### Changed
+
+- VERSION, the Studio manifest (`studio/rivet.rktd`) and the runtime
+  version constant (`benchpilot-version` in
+  `racket/benchpilot/protocol/local-auth.rkt`) reset to 0.1.0 as the
+  first release of the new epoch.
+
+### Removed
+
+- The 1.x release line is retired: the v1.0.0, v1.1.0 and v1.2.0
+  releases and tags are deleted from this repository, and the release
+  feed starts fresh at 0.1.0. The full 1.x history stays documented in
+  the sections below and in git history. Note for self-updating installs
+  on a 1.x version: the updater's dotted-numeric comparison sees 0.1.0
+  as older, so those installs are not auto-updated — reinstall from the
+  latest release instead.
+
 ## 1.2.0 - 2026-10-10
 
 The Studio's diagnostics slice completes: evidence inspection and the

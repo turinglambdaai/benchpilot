@@ -17,7 +17,7 @@ Build -> Flash -> Run -> Observe -> Diagnose -> Fix
 
 BenchPilot **不是** CANoe 克隆。它不追求复刻整车网络仿真、CAPL、ADAS 仿真或几百个分析窗口。CAN/CAN FD、DBC、ISO-TP、UDS 和 DoIP 只在有助于补完 ECU 开发闭环时才加入。
 
-> 当前状态：**v1.0.0 —— Racket 运行时达到完全契约对等，BenchPilot Studio 同车。** ISO-TP/CAN 与 DoIP 上的 UDS 诊断与烧录、无需硬件端到端运行的内置模拟 ECU、SocketCAN/PCAN 适配器、system-serial/J-Link/SCPI 电源驱动，全部收在一个就绪门后面。持久化证据/产物存储、设备错误分类法、HEX/S-record 镜像模型、UDS DTC、安全 provider、CAN 抓包 + DBC 信号解码、带审计的团队租约、烧录加固（指纹门、编程中电源保护、恢复策略）均已就位。**BenchPilot Studio**——Rivet 线第一个原生桌面 app——已随本版交付 macOS（Apple Silicon），Windows 与 Linux 宿主随后。下一道门是对真实 ECU + J-Link + 串口 + 台架电源做物理验证，而不是增加更多协议。
+> 当前状态：**v0.1.0 —— 版本纪元重置后的首个发布：Racket 运行时达到完全契约对等，BenchPilot Studio 同车，进入 0.x 功能验证阶段。** ISO-TP/CAN 与 DoIP 上的 UDS 诊断与烧录、无需硬件端到端运行的内置模拟 ECU、SocketCAN/PCAN 适配器、system-serial/J-Link/SCPI 电源驱动，全部收在一个就绪门后面。持久化证据/产物存储、设备错误分类法、HEX/S-record 镜像模型、UDS DTC、安全 provider、CAN 抓包 + DBC 信号解码、带审计的团队租约、烧录加固（指纹门、编程中电源保护、恢复策略）均已就位。**BenchPilot Studio**——Rivet 线第一个原生桌面 app——已随本版交付 macOS（Apple Silicon），Windows 与 Linux 宿主随后。下一道门是对真实 ECU + J-Link + 串口 + 台架电源做物理验证，而不是增加更多协议。
 
 ## 为什么做 BenchPilot？
 
@@ -462,15 +462,15 @@ benchpilot/
 2. 在真实 ECU 上验证 CAN 与 DoIP 的 UDS 烧录工作流；
 3. CAN/CAN FD 抓包 + DBC 解码与信号观察；
 4. 更丰富的 vendor-neutral 设备/运行时错误分类法和生产级证据/产物引用；
-5. ~~跑在同一个运行时 API 上的 Studio GUI。~~ 已交付：BenchPilot Studio v1.0.0 覆盖 macOS 上的电源、烧录、串口、UDS 诊断与 DoIP 发现。
+5. ~~跑在同一个运行时 API 上的 Studio GUI。~~ 已交付：BenchPilot Studio 覆盖 macOS 上的电源、烧录、串口、UDS 诊断与 DoIP 发现。
 
 见 [ROADMAP.md](ROADMAP.md)。
 
 ## 实现语言
 
-运行时自 v1.0.0 起用 **Racket**（Racket CS）实现
+运行时用 **Racket**（Racket CS）实现
 （[ADR 0002](docs/adr/0002-racket-port.md)，取代
-[ADR 0001](docs/adr/0001-runtime-language.md)）。0.5.x 线的 C#/.NET 代码树在移植达到完全契约对等后于 v1.0.0 退役：同一套冻结的 JSON API、同样的 CLI 退出码、同样的 E2E 套件。GUI 技术与运行时保持解耦：BenchPilot Studio 说的是同一套版本化本地 API，而不是自己持有设备。
+[ADR 0001](docs/adr/0001-runtime-language.md)）。0.5.x 线的 C#/.NET 代码树在移植达到完全契约对等后退役：同一套冻结的 JSON API、同样的 CLI 退出码、同样的 E2E 套件。GUI 技术与运行时保持解耦：BenchPilot Studio 说的是同一套版本化本地 API，而不是自己持有设备。
 
 ## 长期烧录方向
 
