@@ -2,6 +2,49 @@
 
 All notable changes to BenchPilot are documented here.
 
+## 0.2.0 - 2026-10-10
+
+The release matrix catches up with the family standard: Studio ships for
+every desktop platform it has a host for, and the macOS app gains the
+family in-app updater.
+
+### Added
+
+- Studio macOS Intel build: the release pipeline packages a native x64
+  app (`benchpilot-studio-<version>-macos-x64.dmg`) beside the Apple
+  silicon one, on the same `macos-15-intel` runner the CLI matrix uses.
+  The host startup moved to the family pattern (synchronous boot on the
+  main thread + structured continuation) so the Intel image's stricter
+  Swift 6.1 sendability checks pass.
+- Studio portable archives: every macOS DMG now ships beside a
+  `benchpilot-studio-<version>-macos-<arch>.zip` (the app at the archive
+  root), and the Windows host ships as
+  `benchpilot-studio-<version>-windows-x64.zip` — the same WinUI 3 build
+  the CI gate compiles, packaged and launch-smoked by the release
+  pipeline. The Linux host stays unpackaged (developer preview: the CI
+  gate is deliberately syntax-level, so it has never been linked or
+  launched; it needs a from-source Racket CS build to ship).
+- Studio in-app updater (macOS): the backend grows `check-updates` /
+  `start-download` / `update-state` RPCs over the `UpdateCheck` /
+  `UpdateState` records (rivet/distribution family pattern; the Windows
+  and Linux hosts get the same updater through them without native
+  crypto), and the macOS host gets UpdateService — Ed25519 signed-wrapper
+  verification, compile-time architecture feed selection, buffered
+  download with size-break, and an atomic in-place bundle swap with
+  rollback. Silent check at most once per 4 hours; manual from the app
+  menu ("Check for Updates…"). The feed is the release's
+  `update-manifest.json`, signed with a new benchpilot keypair
+  (`scripts/update-keys.sh`; private half in the keys vault and the
+  UPDATE_ED25519_PRIVATE_KEY secret, never in the repository).
+- The version gate now also pins the Studio updater's embedded release
+  identity to VERSION, next to the CLI runtime and the Studio manifest.
+
+### Changed
+
+- README install matrix: macOS Intel and Windows x64 Studio rows are no
+  longer "—"/"planned"; the updater scope note now points to the
+  in-app updater.
+
 ## 0.1.0 - 2026-10-10
 
 Version epoch reset. The family version strategy changes: the technical

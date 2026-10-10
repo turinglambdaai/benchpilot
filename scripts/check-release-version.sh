@@ -30,4 +30,9 @@ grep -qF "(define benchpilot-version \"$VERSION\")" \
   "$ROOT/racket/benchpilot/protocol/local-auth.rkt" || \
   fail "racket/benchpilot/protocol/local-auth.rkt benchpilot-version does not match VERSION '$VERSION'"
 
-echo "release preflight: version $VERSION is aligned (VERSION == studio/rivet.rktd == CLI runtime)"
+# The Studio updater embeds its own release identity (signed-feed check).
+grep -qF "(define app-version \"$VERSION\")" \
+  "$ROOT/studio/app/updater.rkt" || \
+  fail "studio/app/updater.rkt app-version does not match VERSION '$VERSION'"
+
+echo "release preflight: version $VERSION is aligned (VERSION == studio/rivet.rktd == CLI runtime == Studio updater)"

@@ -8,7 +8,7 @@ RVT1 records — status, operations, power, and flash control.
 ## Backend tests
 
 ```bash
-raco test tests/backend-server-test.rkt
+raco test tests
 ```
 
 Wire-level suite: runs a real RVT1 server against a fake daemon speaking the

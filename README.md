@@ -17,7 +17,7 @@ Build -> Flash -> Run -> Observe -> Diagnose -> Fix
 
 BenchPilot is **not** a CANoe clone. It does not aim to reproduce full vehicle-network simulation, CAPL, ADAS simulation or hundreds of analysis windows. CAN/CAN FD, DBC, ISO-TP, UDS and DoIP are added when they help complete the ECU development loop.
 
-> Current status: **v0.1.0 — first release of the reset version epoch: the Racket runtime at full contract parity plus BenchPilot Studio enters 0.x feature validation.** UDS diagnostics and flashing over ISO-TP/CAN and DoIP, a built-in simulated ECU for hardware-free end-to-end runs, SocketCAN/PCAN adapters and system-serial/J-Link/SCPI power drivers behind one readiness gate. Persistent evidence/artifact storage, device error taxonomy, HEX/S-record image models, UDS DTC, security providers, CAN capture + DBC signal decoding, team leases with audit, and flash hardening (fingerprint gate, in-programming power guard, recovery strategies) are in. **BenchPilot Studio** — the first-party native desktop app on the Rivet line — ships for macOS (Apple Silicon); the Windows and Linux hosts follow. The next gate is physical validation against a real ECU + J-Link + serial + bench supply, not adding more protocols.
+> Current status: **v0.1.0 — first release of the reset version epoch: the Racket runtime at full contract parity plus BenchPilot Studio enters 0.x feature validation.** UDS diagnostics and flashing over ISO-TP/CAN and DoIP, a built-in simulated ECU for hardware-free end-to-end runs, SocketCAN/PCAN adapters and system-serial/J-Link/SCPI power drivers behind one readiness gate. Persistent evidence/artifact storage, device error taxonomy, HEX/S-record image models, UDS DTC, security providers, CAN capture + DBC signal decoding, team leases with audit, and flash hardening (fingerprint gate, in-programming power guard, recovery strategies) are in. **BenchPilot Studio** — the first-party native desktop app on the Rivet line — ships for macOS (Apple Silicon and Intel) and Windows (portable zip); the Linux host is a developer preview. The next gate is physical validation against a real ECU + J-Link + serial + bench supply, not adding more protocols.
 
 ## Why BenchPilot?
 
@@ -141,10 +141,10 @@ checksum manifest):
 
 | platform | CLI (portable) | CLI (installer) | Studio (desktop app) |
 | --- | --- | --- | --- |
-| macOS Apple silicon | `benchpilot-<version>-osx-arm64.tar.gz` | — | `benchpilot-studio-<version>-macos-arm64.dmg` |
-| macOS Intel | `benchpilot-<version>-osx-x64.tar.gz` | — | — |
-| Windows x64 | `benchpilot-<version>-win-x64.zip` | — | planned |
-| Linux x64 | `benchpilot-<version>-linux-x64.tar.gz` | `benchpilot-<version>-linux-x64.deb` | planned |
+| macOS Apple silicon | `benchpilot-<version>-osx-arm64.tar.gz` | — | `benchpilot-studio-<version>-macos-arm64.dmg` + portable `.zip` |
+| macOS Intel | `benchpilot-<version>-osx-x64.tar.gz` | — | `benchpilot-studio-<version>-macos-x64.dmg` + portable `.zip` |
+| Windows x64 | `benchpilot-<version>-win-x64.zip` | — | `benchpilot-studio-<version>-windows-x64.zip` (portable) |
+| Linux x64 | `benchpilot-<version>-linux-x64.tar.gz` | `benchpilot-<version>-linux-x64.deb` | planned (host is a developer preview) |
 | Linux arm64 | `benchpilot-<version>-linux-arm64.tar.gz` | — | planned |
 
 Package-manager routes: each release also carries a generated Homebrew
@@ -160,13 +160,16 @@ on your `PATH`:
 | `benchpilot` | CLI for humans, CI and agents |
 | `benchpilot-mcp` | stdio MCP adapter for agent clients |
 
-Desktop app: download `benchpilot-studio-<version>-macos-arm64.dmg` from the
+Desktop app: download `benchpilot-studio-<version>-macos-<arch>.dmg` from the
 [latest release](https://github.com/turinglambdaai/benchpilot/releases/latest)
-(macOS 14+, Apple Silicon), drag **BenchPilot Studio** to Applications and
-launch. Studio is a client over the same resident runtime — start
+(macOS 14+, Apple Silicon or Intel), drag **BenchPilot Studio** to
+Applications and launch. On Windows, unpack
+`benchpilot-studio-<version>-windows-x64.zip` and run `RivetHost.exe`.
+Studio is a client over the same resident runtime — start
 `benchpilotd` (any CLI/MCP command does it automatically) and the app
 connects; without the runtime it shows a reachable/diagnostic state instead.
-Windows and Linux hosts follow.
+The Windows host covers the bench essentials (status, power, DTC read,
+history); the Linux host is a developer preview and not packaged yet.
 
 From source instead:
 
@@ -189,12 +192,15 @@ The updater refuses to run while hardware operations are active, and leaves
 `.old` backups next to the replaced executables. If an agent hosts
 `benchpilot-mcp`, restart that MCP server after updating.
 
-Scope, stated plainly: the self-updater covers the three executables only —
+Scope, stated plainly: the CLI self-updater covers the three executables —
 its feed is this repo's GitHub releases, and integrity comes from the
-release's `SHA256SUMS` manifest. Studio (the desktop app) has no in-app
-updater: download the new DMG from the
-[latest release](https://github.com/turinglambdaai/benchpilot/releases/latest)
-and drag it to Applications.
+release's `SHA256SUMS` manifest. Studio (the desktop app) updates in-app on
+macOS: "Check for Updates…" in the app menu, silent check at most once per
+4 hours; the feed is the release's Ed25519-signed `update-manifest.json`
+covering the portable zips, verified in-app before an atomic in-place swap
+(only a copy under /Applications self-updates). The Windows host has no
+in-app updater yet: replace it from the
+[latest release](https://github.com/turinglambdaai/benchpilot/releases/latest).
 
 ### 1. Just run a command
 

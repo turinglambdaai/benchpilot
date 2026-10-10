@@ -16,7 +16,7 @@
          read-token
          benchpilot-version)
 
-(define benchpilot-version "0.1.0")
+(define benchpilot-version "0.2.0")
 
 (define (user-profile-dir)
   (define home (getenv "USERPROFILE"))

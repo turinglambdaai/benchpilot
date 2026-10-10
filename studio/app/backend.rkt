@@ -14,6 +14,7 @@
          racket/format
          racket/string
          "daemon-client.rkt"
+         "updater.rkt"
          ;; Package-name requires: protocol.rkt itself pulls
          ;; benchpilot/core/contracts as a library, and the module embedder
          ;; rejects the same file reachable through both a library and a
@@ -203,6 +204,27 @@
    [observation-id : String]
    [cancel-requested : Bool]
    [error : (Optional String)]))
+
+;; Result of check-updates. status: "available" | "up-to-date" | "error";
+;; the descriptive fields are only filled for "available".
+(define-record UpdateCheck
+  ([status : String]
+   [error : (Optional String)]
+   [current-version : String]
+   [available-version : (Optional String)]
+   [build : (Optional Int64)]
+   [published-at : (Optional String)]
+   [installer : (Optional String)]
+   [size-bytes : (Optional Int64)]))
+
+;; Polled by the host while a download runs. phase: idle | checking |
+;; downloading | downloaded | error.
+(define-record UpdateState
+  ([phase : String]
+   [percent : Int64]
+   [message : (Optional String)]
+   [downloaded-path : (Optional String)]
+   [available-version : (Optional String)]))
 
 ;; --- jsexpr adapters -------------------------------------------------------
 
@@ -532,7 +554,60 @@
                            (jbool j 'cancelRequested)
                            (jopt j 'error)))
 
+;; --- online update -----------------------------------------------------------
+;; The family pattern (rivet/distribution, taskly): this backend verifies and
+;; downloads the signed artifact; hosts own installation and the silent
+;; 4-hour throttle. The macOS host drives its own UpdateService today; these
+;; RPCs give the Windows/Linux hosts the same updater without native crypto.
+
+;; Optional RVT1 fields use (void) as the absent representation.
+(define (nullable value)
+  (if value value (void)))
+
+(define (update-check->record result)
+  (UpdateCheck
+   (hash-ref result 'status "error")
+   (nullable (hash-ref result 'message #f))
+   (hash-ref result 'currentVersion app-version)
+   (nullable (hash-ref result 'availableVersion #f))
+   (nullable (hash-ref result 'build #f))
+   (nullable (hash-ref result 'publishedAt #f))
+   (nullable (hash-ref result 'installer #f))
+   (nullable (hash-ref result 'sizeBytes #f))))
+
+;; Never raises: network/manifest failures surface as status "error" so a
+;; headless check can't take the host down with it.
+(define-rpc (check-updates : UpdateCheck)
+  (with-handlers
+      ([exn:fail?
+        (lambda (e)
+          (UpdateCheck "error" (exn-message e) app-version
+                       (void) (void) (void) (void) (void)))])
+    (update-check->record (perform-check!))))
+
+;; Runs on a backend worker thread; the host follows progress via
+;; update-state. Never raises: failures surface through the state's phase.
+(define-rpc (start-download : Void)
+  (with-handlers
+      ([exn:fail? (lambda (e) (set-update-error! (exn-message e)))])
+    (start-download! (studio-directory)))
+  (void))
+
+(define-rpc (update-state : UpdateState)
+  (define s (update-state-snapshot))
+  (UpdateState
+   (hash-ref s 'phase "idle")
+   (hash-ref s 'percent 0)
+   (nullable (hash-ref s 'message #f))
+   (nullable (hash-ref s 'downloadedPath #f))
+   (nullable (hash-ref s 'availableVersion #f))))
+
 ;; --- Entry -----------------------------------------------------------------
 
 (define (start in-fd out-fd)
   (serve-fds in-fd out-fd))
+
+;; Test seam: the generated RPC handlers are plain functions; the updater
+;; tests call them directly without standing up an RVT1 server.
+(module+ rpcs
+  (provide check-updates start-download update-state))

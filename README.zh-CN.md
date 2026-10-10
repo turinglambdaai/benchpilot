@@ -17,7 +17,7 @@ Build -> Flash -> Run -> Observe -> Diagnose -> Fix
 
 BenchPilot **不是** CANoe 克隆。它不追求复刻整车网络仿真、CAPL、ADAS 仿真或几百个分析窗口。CAN/CAN FD、DBC、ISO-TP、UDS 和 DoIP 只在有助于补完 ECU 开发闭环时才加入。
 
-> 当前状态：**v0.1.0 —— 版本纪元重置后的首个发布：Racket 运行时达到完全契约对等，BenchPilot Studio 同车，进入 0.x 功能验证阶段。** ISO-TP/CAN 与 DoIP 上的 UDS 诊断与烧录、无需硬件端到端运行的内置模拟 ECU、SocketCAN/PCAN 适配器、system-serial/J-Link/SCPI 电源驱动，全部收在一个就绪门后面。持久化证据/产物存储、设备错误分类法、HEX/S-record 镜像模型、UDS DTC、安全 provider、CAN 抓包 + DBC 信号解码、带审计的团队租约、烧录加固（指纹门、编程中电源保护、恢复策略）均已就位。**BenchPilot Studio**——Rivet 线第一个原生桌面 app——已随本版交付 macOS（Apple Silicon），Windows 与 Linux 宿主随后。下一道门是对真实 ECU + J-Link + 串口 + 台架电源做物理验证，而不是增加更多协议。
+> 当前状态：**v0.1.0 —— 版本纪元重置后的首个发布：Racket 运行时达到完全契约对等，BenchPilot Studio 同车，进入 0.x 功能验证阶段。** ISO-TP/CAN 与 DoIP 上的 UDS 诊断与烧录、无需硬件端到端运行的内置模拟 ECU、SocketCAN/PCAN 适配器、system-serial/J-Link/SCPI 电源驱动，全部收在一个就绪门后面。持久化证据/产物存储、设备错误分类法、HEX/S-record 镜像模型、UDS DTC、安全 provider、CAN 抓包 + DBC 信号解码、带审计的团队租约、烧录加固（指纹门、编程中电源保护、恢复策略）均已就位。**BenchPilot Studio**——Rivet 线第一个原生桌面 app——已交付 macOS（Apple Silicon 与 Intel）与 Windows（便携 zip），Linux 宿主为开发预览。下一道门是对真实 ECU + J-Link + 串口 + 台架电源做物理验证，而不是增加更多协议。
 
 ## 为什么做 BenchPilot？
 
@@ -139,10 +139,10 @@ irm https://raw.githubusercontent.com/turinglambdaai/benchpilot/main/scripts/ins
 
 | 平台 | CLI（便携） | CLI（安装器） | Studio（桌面 app） |
 | --- | --- | --- | --- |
-| macOS Apple Silicon | `benchpilot-<version>-osx-arm64.tar.gz` | — | `benchpilot-studio-<version>-macos-arm64.dmg` |
-| macOS Intel | `benchpilot-<version>-osx-x64.tar.gz` | — | — |
-| Windows x64 | `benchpilot-<version>-win-x64.zip` | — | 计划中 |
-| Linux x64 | `benchpilot-<version>-linux-x64.tar.gz` | `benchpilot-<version>-linux-x64.deb` | 计划中 |
+| macOS Apple Silicon | `benchpilot-<version>-osx-arm64.tar.gz` | — | `benchpilot-studio-<version>-macos-arm64.dmg` + 便携 `.zip` |
+| macOS Intel | `benchpilot-<version>-osx-x64.tar.gz` | — | `benchpilot-studio-<version>-macos-x64.dmg` + 便携 `.zip` |
+| Windows x64 | `benchpilot-<version>-win-x64.zip` | — | `benchpilot-studio-<version>-windows-x64.zip`（便携） |
+| Linux x64 | `benchpilot-<version>-linux-x64.tar.gz` | `benchpilot-<version>-linux-x64.deb` | 计划中（宿主为开发预览） |
 | Linux arm64 | `benchpilot-<version>-linux-arm64.tar.gz` | — | 计划中 |
 
 包管理器路线：每个发布还带生成的 Homebrew formula（`benchpilot.rb`）和 scoop manifest（`benchpilot.scoop.json`）——复制进你的 tap/bucket，或者从
@@ -156,10 +156,12 @@ irm https://raw.githubusercontent.com/turinglambdaai/benchpilot/main/scripts/ins
 | `benchpilot-mcp` | 面向 agent 客户端的 stdio MCP 适配器 |
 
 桌面 app：从[最新发布](https://github.com/turinglambdaai/benchpilot/releases/latest)下载
-`benchpilot-studio-<version>-macos-arm64.dmg`（macOS 14+，Apple Silicon），把 **BenchPilot Studio**
-拖进 Applications 启动。Studio 是同一个常驻运行时的客户端——先让 `benchpilotd`
+`benchpilot-studio-<version>-macos-<arch>.dmg`（macOS 14+，Apple Silicon 或 Intel），把 **BenchPilot Studio**
+拖进 Applications 启动。Windows 上解包 `benchpilot-studio-<version>-windows-x64.zip` 运行
+`RivetHost.exe`。Studio 是同一个常驻运行时的客户端——先让 `benchpilotd`
 跑起来（任意 CLI/MCP 命令会自动拉起），app 即自动连接；运行时不在时显示可达性
-诊断态而不是空白。Windows 与 Linux 宿主随后。
+诊断态而不是空白。Windows 宿主覆盖台架基本操作（状态、电源、DTC 读取、历史）；
+Linux 宿主为开发预览，暂不打包。
 
 也可以从源码：
 
@@ -180,10 +182,12 @@ benchpilot update           # 下载、校验 SHA256、优雅停掉守护进程�
 
 硬件操作进行期间更新器拒绝运行，并在被替换的可执行文件旁边留下 `.old` 备份。如果 agent 宿主了 `benchpilot-mcp`，更新后请重启那个 MCP server。
 
-范围如实说明：自更新器只覆盖三个可执行文件——feed 是本仓库的 GitHub
-releases，完整性校验用发布自带的 `SHA256SUMS` 清单。Studio（桌面 app）暂无
-应用内更新器：从[最新发布](https://github.com/turinglambdaai/benchpilot/releases/latest)下载新
-DMG 拖进 Applications 即可。
+范围如实说明：CLI 自更新器覆盖三个可执行文件——feed 是本仓库的 GitHub
+releases，完整性校验用发布自带的 `SHA256SUMS` 清单。Studio（桌面 app）在
+macOS 上支持应用内更新：app 菜单「Check for Updates…」，静默检查至多每 4
+小时一次；feed 是发布自带的 Ed25519 签名 `update-manifest.json`（覆盖便携
+zip），app 内先验签再原子换装（仅 /Applications 下的副本可自更新）。Windows
+宿主暂无应用内更新器：从[最新发布](https://github.com/turinglambdaai/benchpilot/releases/latest)重新下载即可。
 
 ### 1. 直接跑命令
 

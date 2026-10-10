@@ -144,12 +144,25 @@ jobs:
           if-no-files-found: error
 
   studio-macos:
+    name: Studio macOS (${{ matrix.arch }})
     needs: [preflight, test]
     permissions:
       contents: read
       id-token: write
       attestations: write
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+            racket-arch: arm64
+          # macos-13 retired 2025-12-04; macos-15-intel is the last Intel
+          # image (same leg the CLI publish matrix uses).
+          - arch: x64
+            runner: macos-15-intel
+            racket-arch: x64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
 
@@ -163,9 +176,9 @@ jobs:
       - name: Setup Racket
         uses: Bogdanp/setup-racket@v1.15
         with:
-          # arm64-native packaging: without this the runner builds under
-          # Rosetta and ships an x86_64 app (the PodLens release bug).
-          architecture: arm64
+          # arch-native packaging: without this the runner builds under
+          # Rosetta and ships an app of the wrong slice (the PodLens bug).
+          architecture: '${{ matrix.racket-arch }}'
           distribution: full
           variant: CS
           version: '9.3'
@@ -187,14 +200,17 @@ jobs:
         working-directory: studio
         run: raco rivet package
 
-      - name: Human installer (DMG, drag to Applications)
+      - name: Family artifacts (DMG + portable zip)
         working-directory: studio
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
+          ARCH="${{ matrix.arch }}"
           volname="BenchPilot Studio"
           # Family artifact naming: <product>-<version>-<platform>-<arch>.
-          # Studio is packaged arm64-native (see the Racket setup above).
-          dmg="benchpilot-studio-${VERSION}-macos-arm64.dmg"
+          # The portable zip is the update-feed entry for this architecture
+          # (the in-app updater swaps the .app inside it in place).
+          dmg="benchpilot-studio-${VERSION}-macos-${ARCH}.dmg"
+          zip="benchpilot-studio-${VERSION}-macos-${ARCH}.zip"
           staging="$(mktemp -d)/dmg-stage"
           mkdir -p "$staging"
           cp -R dist/benchpilot-studio.app "$staging/"
@@ -203,23 +219,101 @@ jobs:
           hdiutil attach "$dmg" -mountpoint /tmp/benchpilot-studio-dmg-verify -readonly
           test -d /tmp/benchpilot-studio-dmg-verify/benchpilot-studio.app
           hdiutil detach /tmp/benchpilot-studio-dmg-verify
-          mv "$dmg" "$GITHUB_WORKSPACE"
+          # Portable zip: the .app at the archive root, resource-fork-safe.
+          ditto -c -k --keepParent dist/benchpilot-studio.app "$zip"
+          mv "$dmg" "$zip" "$GITHUB_WORKSPACE"
 
       - name: Attest build provenance
         uses: actions/attest@v4
         with:
-          subject-path: benchpilot-studio-*-macos-arm64.dmg
+          subject-path: |
+            benchpilot-studio-*-macos-${{ matrix.arch }}.dmg
+            benchpilot-studio-*-macos-${{ matrix.arch }}.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: benchpilot-studio-macos
-          path: benchpilot-studio-*-macos-arm64.dmg
+          name: benchpilot-studio-macos-${{ matrix.arch }}
+          path: |
+            benchpilot-studio-*-macos-*.dmg
+            benchpilot-studio-*-macos-*.zip
+          retention-days: 5
+          if-no-files-found: error
+
+  # Studio Windows host: the same full WinUI 3 build the CI gate runs on
+  # every change, packaged as a portable zip (launch smoke included by
+  # raco rivet package). No MSI yet — portable first, installer later.
+  studio-windows:
+    name: Studio Windows (x64)
+    needs: [preflight, test]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Checkout Rivet (pinned)
+        uses: actions/checkout@v7
+        with:
+          repository: turinglambdaai/rivet
+          ref: 6eb0837a7e294fe302b56e9a379988edfe69e3cf
+          path: rivet
+
+      - name: Setup Racket
+        uses: Bogdanp/setup-racket@v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: '9.3'
+
+      - name: Install crypto package (rivet/distribution dependency)
+        shell: bash
+        run: raco pkg install --auto --no-docs crypto
+
+      - name: Link Rivet
+        shell: bash
+        run: raco pkg install --auto --no-docs --link "$GITHUB_WORKSPACE/rivet/rivet" "$GITHUB_WORKSPACE/rivet/rivet-cli"
+
+      - name: Link benchpilot runtime
+        shell: bash
+        run: raco pkg install --auto --name benchpilot --link racket
+
+      - name: Package Studio app (includes launch smoke)
+        working-directory: studio
+        env:
+          RIVET_ROOT: ${{ github.workspace }}/rivet
+        shell: bash
+        run: raco rivet package
+
+      - name: Family artifact (portable zip)
+        working-directory: studio/dist
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # windows runners ship bsdtar; -a picks zip from the extension.
+          # The directory name comes from rivet's Windows packager.
+          test -d benchpilot-studio-windows-x64
+          tar -a -cf "benchpilot-studio-${VERSION}-windows-x64.zip" benchpilot-studio-windows-x64
+          mv "benchpilot-studio-${VERSION}-windows-x64.zip" "$GITHUB_WORKSPACE"
+
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: benchpilot-studio-*-windows-x64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchpilot-studio-windows
+          path: benchpilot-studio-*-windows-x64.zip
           retention-days: 5
           if-no-files-found: error
 
   release:
-    needs: [publish, studio-macos]
+    needs: [publish, studio-macos, studio-windows]
     # workflow_dispatch runs validate packaging only; a release is created
     # from tag pushes alone.
     if: startsWith(github.ref, 'refs/tags/')
@@ -230,6 +324,28 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v7
+
+      # The update feed is signed here (scripts/make-update-manifest.sh):
+      # the Studio portable zips ARE the feed for the in-app updater.
+      - name: Setup Racket (manifest signer)
+        uses: Bogdanp/setup-racket@v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: '9.3'
+
+      - name: Checkout Rivet (pinned)
+        uses: actions/checkout@v7
+        with:
+          repository: turinglambdaai/rivet
+          ref: 6eb0837a7e294fe302b56e9a379988edfe69e3cf
+          path: rivet
+
+      - name: Install crypto package and link Rivet
+        run: |
+          raco pkg install --auto --no-docs crypto
+          raco pkg install --auto --no-docs --link "$GITHUB_WORKSPACE/rivet/rivet" "$GITHUB_WORKSPACE/rivet/rivet-cli"
 
       - uses: actions/download-artifact@v8
         with:
@@ -249,6 +365,22 @@ jobs:
 
       - name: Generate Homebrew formula and scoop manifest
         run: bash scripts/gen-dist-manifests.sh "${GITHUB_REF_NAME#v}" artifacts
+
+      - name: Sign the Studio update feed
+        env:
+          UPDATE_ED25519_PRIVATE_KEY: ${{ secrets.UPDATE_ED25519_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          # Missing secret → warn and publish without a manifest; hosts then
+          # answer "release has no update manifest" until the key lands.
+          if [[ -n "${UPDATE_ED25519_PRIVATE_KEY:-}" ]]; then
+            KEY_PEM="$RUNNER_TEMP/update-signing-key.pem"
+            printf '%s\n' "$UPDATE_ED25519_PRIVATE_KEY" > "$KEY_PEM"
+            bash scripts/make-update-manifest.sh "$GITHUB_REF_NAME" artifacts "$KEY_PEM"
+            rm -f "$KEY_PEM"
+          else
+            echo "::warning::UPDATE_ED25519_PRIVATE_KEY not set — release ships without an update manifest"
+          fi
 
       - name: Extract release notes from CHANGELOG
         shell: bash
